@@ -1,11 +1,16 @@
-"""Meeting state model and system-prompt builder."""
+"""Meeting state model, system-prompt builder, and lifecycle helpers."""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from loguru import logger
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from livekit.agents import Agent
 
 
 class Objective(BaseModel):
@@ -103,3 +108,20 @@ def build_instructions(state: MeetingState, elapsed_minutes: float) -> str:
         elapsed_minutes=elapsed_minutes,
         target_minutes=state.target_minutes,
     )
+
+
+def elapsed_minutes(state: MeetingState) -> float:
+    return (datetime.now(timezone.utc) - state.started_at).total_seconds() / 60.0
+
+
+async def schedule_time_warning(agent: "Agent", state: MeetingState) -> None:
+    """Sleep until five minutes before the target end, then nudge the model to wrap up."""
+    warn_seconds = max(0.0, (state.target_minutes - 5) * 60.0)
+    await asyncio.sleep(warn_seconds)
+    if state.end_reason is not None:
+        return
+    elapsed = elapsed_minutes(state)
+    body = build_instructions(state, elapsed)
+    warning = "\n\n# TIME WARNING\nFive minutes remaining. Begin wrapping up now."
+    await agent.update_instructions(body + warning)
+    logger.info("time warning fired at {:.1f} min elapsed", elapsed)

@@ -8,6 +8,7 @@ and the live objective tracker.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +26,13 @@ from livekit.plugins import openai as oai_plugin, silero
 from loguru import logger
 from openai.types import realtime as openai_realtime
 
-from .harness import MeetingState, ObjectiveStatus, build_instructions
+from .harness import (
+    MeetingState,
+    ObjectiveStatus,
+    build_instructions,
+    elapsed_minutes,
+    schedule_time_warning,
+)
 from .objectives import extract_objectives
 from .persistence import Persistence
 from .tools import end_meeting, note_followup, record_finding, update_objective_status
@@ -99,6 +106,16 @@ async def entrypoint(ctx: JobContext) -> None:
             if text:
                 persist.append_transcript(item.role, text)
 
+    @session.on("user_input_transcribed")
+    def _on_user_turn(ev) -> None:
+        if not ev.is_final:
+            return
+        state.user_turn_count += 1
+        if state.user_turn_count % 4 == 0:
+            new = build_instructions(state, elapsed_minutes(state))
+            asyncio.create_task(agent.update_instructions(new))
+            logger.info("instructions refreshed at user turn {}", state.user_turn_count)
+
     async def _flush_on_shutdown() -> None:
         if state.end_reason is None:
             state.end_reason = "user_ended"
@@ -116,6 +133,7 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     await session.start(agent=agent, room=ctx.room)
+    asyncio.create_task(schedule_time_warning(agent, state))
     await session.generate_reply(
         instructions=(
             "Greet the stakeholder warmly in two sentences (a brief intro plus "
