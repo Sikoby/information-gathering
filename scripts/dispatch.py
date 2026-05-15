@@ -81,6 +81,8 @@ async def dispatch(briefing_path: Path, target_minutes: int) -> None:
             metadata=json.dumps(metadata),
         ))
 
+        webapp_base = os.environ.get("WEBAPP_PUBLIC_URL", "http://localhost:8765")
+
         print(f"run_id        {run_id}")
         print(f"room          {room_name}")
         print(f"briefing      {briefing_path}")
@@ -88,6 +90,9 @@ async def dispatch(briefing_path: Path, target_minutes: int) -> None:
         print()
         print("Open this URL in a browser, allow mic, and join:")
         print(join_url)
+        print()
+        print("Shared view (read-only):")
+        print(f"{webapp_base}/{run_id}/")
     finally:
         await api.aclose()
 

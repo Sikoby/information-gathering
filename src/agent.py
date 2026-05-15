@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentSession,
@@ -33,9 +35,10 @@ from .harness import (
     elapsed_minutes,
     schedule_time_warning,
 )
-from .objectives import extract_objectives
+from . import webapp
+from .objectives import extract_briefing_plan
 from .persistence import Persistence
-from .tools import end_meeting, note_followup, record_finding, update_objective_status
+from .tools import end_meeting, enter_phase, note_followup, record_finding, update_objective_status
 
 load_dotenv()
 
@@ -59,6 +62,8 @@ def _parse_metadata(raw: str | None) -> dict:
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
+    webapp.start_server(int(os.environ.get("WEBAPP_PORT", "8765")))
+
     meta = _parse_metadata(ctx.job.metadata)
     briefing_path = Path(meta["briefing_path"])
     run_id: str = meta["run_id"]
@@ -70,19 +75,45 @@ async def entrypoint(ctx: JobContext) -> None:
     persist = Persistence(run_id)
     persist.copy_briefing(briefing_path)
 
-    objectives = extract_objectives(briefing_markdown)
+    template, objectives, briefing_body = extract_briefing_plan(briefing_markdown)
     persist.write_objectives(objectives)
-    logger.info("extracted {} objectives", len(objectives))
+    logger.info(
+        "template={} objectives={}", template.name, len(objectives)
+    )
 
     state = MeetingState(
         run_id=run_id,
         briefing_path=str(briefing_path),
         target_minutes=target_minutes,
         started_at=datetime.now(timezone.utc),
-        briefing_markdown=briefing_markdown,
+        briefing_markdown=briefing_body,
         objectives=objectives,
         tracker={o.id: ObjectiveStatus() for o in objectives},
+        template=template,
+        current_phase=template.phases[0].id,
     )
+    webapp.register(state)
+
+    webapp_base = os.environ.get(
+        "WEBAPP_PUBLIC_URL",
+        f"http://localhost:{os.environ.get('WEBAPP_PORT', '8765')}",
+    )
+    webapp_url = f"{webapp_base}/{run_id}/"
+
+    async def _post_webapp_url() -> None:
+        try:
+            await ctx.room.local_participant.send_text(
+                f"Live meeting view: {webapp_url}",
+                topic="lk.chat",
+            )
+            logger.info("posted webapp url to chat: {}", webapp_url)
+        except Exception as e:
+            logger.warning("failed to post webapp url to chat: {}", e)
+
+    @ctx.room.on("participant_connected")
+    def _on_participant_connected(participant: rtc.RemoteParticipant) -> None:
+        logger.info("participant joined: {}", participant.identity)
+        asyncio.create_task(_post_webapp_url())
 
     realtime_model = oai_plugin.realtime.RealtimeModel(
         model="gpt-realtime",
@@ -111,6 +142,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if not ev.is_final:
             return
         state.user_turn_count += 1
+        asyncio.create_task(webapp.publish(state))
         if state.user_turn_count % 4 == 0:
             new = build_instructions(state, elapsed_minutes(state))
             asyncio.create_task(agent.update_instructions(new))
@@ -122,6 +154,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if state.ended_at is None:
             state.ended_at = datetime.now(timezone.utc)
         persist.flush_state(state)
+        await webapp.publish(state)
         logger.info("flushed state to {}", persist.run_dir)
 
     ctx.add_shutdown_callback(_flush_on_shutdown)
@@ -129,7 +162,7 @@ async def entrypoint(ctx: JobContext) -> None:
     instructions = build_instructions(state, elapsed_minutes=0.0)
     agent = Agent(
         instructions=instructions,
-        tools=[record_finding, update_objective_status, note_followup, end_meeting],
+        tools=[record_finding, update_objective_status, note_followup, enter_phase, end_meeting],
     )
 
     await session.start(agent=agent, room=ctx.room)

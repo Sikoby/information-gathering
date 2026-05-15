@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "preview-dev",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "scripts/preview_dev_server.py"],
+      "port": 8767
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+"""Requirements definition and prioritisation template."""
+
+from __future__ import annotations
+
+from .schema import NotebookSection, Phase, Template
+
+REQUIREMENTS_TEMPLATE = Template(
+    name="requirements",
+    description=(
+        "Requirements definition and prioritisation interview. The stakeholder "
+        "describes a need; the consultant captures pain, constraints, and what "
+        "matters most vs nice-to-have."
+    ),
+    sections=[
+        NotebookSection(
+            id="pain_points",
+            label="Pain points",
+            description="Concrete problems the stakeholder is trying to solve.",
+        ),
+        NotebookSection(
+            id="must_haves",
+            label="Must-haves",
+            description="Capabilities the solution cannot ship without.",
+        ),
+        NotebookSection(
+            id="nice_to_haves",
+            label="Nice-to-haves",
+            description="Capabilities that add value but aren't blockers.",
+        ),
+        NotebookSection(
+            id="constraints",
+            label="Constraints",
+            description=(
+                "Hard limits: budget caps, compliance, tech-stack lock-in, deadlines."
+            ),
+        ),
+        NotebookSection(
+            id="success_metrics",
+            label="Success metrics",
+            description="How the stakeholder will judge whether the solution worked.",
+        ),
+        NotebookSection(
+            id="stakeholders",
+            label="Stakeholders and decision process",
+            description="Who decides, who is affected, who must be consulted.",
+            repeated=False,
+        ),
+        NotebookSection(
+            id="dependencies",
+            label="Dependencies",
+            description="Upstream/downstream systems, teams, or contracts this depends on.",
+        ),
+    ],
+    phases=[
+        Phase(
+            id="rapport",
+            label="Rapport",
+            goal="Build rapport, confirm scope and time, identify who is in the room.",
+            target_fraction=0.10,
+            sections_in_focus=["stakeholders"],
+        ),
+        Phase(
+            id="define",
+            label="Define",
+            goal=(
+                "Surface concrete pain points, must-haves, constraints, and "
+                "dependencies. Do not solution; keep probing for specifics."
+            ),
+            target_fraction=0.45,
+            sections_in_focus=["pain_points", "must_haves", "constraints", "dependencies"],
+        ),
+        Phase(
+            id="prioritise",
+            label="Prioritise",
+            goal=(
+                "Press on must vs nice. Identify success metrics. Test tradeoffs "
+                "with concrete scenarios."
+            ),
+            target_fraction=0.35,
+            sections_in_focus=["must_haves", "nice_to_haves", "success_metrics"],
+        ),
+        Phase(
+            id="wrap",
+            label="Wrap",
+            goal="Read back the top priorities, confirm follow-ups, close warmly.",
+            target_fraction=0.10,
+            sections_in_focus=[],
+        ),
+    ],
+)

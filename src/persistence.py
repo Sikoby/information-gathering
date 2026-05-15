@@ -38,11 +38,16 @@ class Persistence:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
     def flush_state(self, state: MeetingState, model_name: str = "gpt-realtime") -> None:
-        findings = [f.model_dump(mode="json") for f in state.findings]
+        notebook = {
+            section_id: [e.model_dump(mode="json") for e in entries]
+            for section_id, entries in state.notebook.items()
+        }
+        phase_history = [t.model_dump(mode="json") for t in state.phase_history]
         followups = [f.model_dump(mode="json") for f in state.followups]
         tracker = {k: v.model_dump() for k, v in state.tracker.items()}
 
-        (self.run_dir / "findings.json").write_text(json.dumps(findings, indent=2))
+        (self.run_dir / "notebook.json").write_text(json.dumps(notebook, indent=2))
+        (self.run_dir / "phase_history.json").write_text(json.dumps(phase_history, indent=2))
         (self.run_dir / "followups.json").write_text(json.dumps(followups, indent=2))
 
         meta = {
@@ -50,6 +55,8 @@ class Persistence:
             "briefing_path": state.briefing_path,
             "target_minutes": state.target_minutes,
             "model": model_name,
+            "template": state.template.name,
+            "current_phase": state.current_phase,
             "started_at": state.started_at.isoformat(),
             "ended_at": state.ended_at.isoformat() if state.ended_at else None,
             "end_reason": state.end_reason,
