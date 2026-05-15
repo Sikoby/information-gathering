@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "information-gathering"
+version = "0.1.0"
+description = "Briefing-driven voice meeting agent prototype"
+requires-python = ">=3.11"
+dependencies = [
+  "livekit-agents[openai,silero,turn-detector]==1.5.*",
+  "livekit-plugins-openai>=1.5.0",
+  "livekit-api>=1.0.0",
+  "openai>=1.50.0",
+  "pydantic>=2.7",
+  "loguru>=0.7",
+  "python-dotenv>=1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
