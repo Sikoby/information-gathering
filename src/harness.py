@@ -97,6 +97,9 @@ concise, and warm. You speak in short turns (one or two sentences) and listen.
 # NOTEBOOK
 {notebook_state}
 
+# FOLLOWUPS
+{followups_state}
+
 # TIME BUDGET
 Elapsed: {elapsed_minutes:.1f} min of target {target_minutes} min
 """
@@ -184,12 +187,25 @@ def render_notebook(state: MeetingState) -> str:
     return "\n".join(parts)
 
 
+def render_followups(state: MeetingState) -> str:
+    buckets: dict[str, list[str]] = {"action": [], "open_question": []}
+    for f in state.followups:
+        buckets[f.kind].append(f"- {f.item}")
+    parts: list[str] = []
+    parts.append(f"## ACTIONS ({len(buckets['action'])})")
+    parts.append("\n".join(buckets["action"]) if buckets["action"] else "(none)")
+    parts.append(f"## OPEN QUESTIONS ({len(buckets['open_question'])})")
+    parts.append("\n".join(buckets["open_question"]) if buckets["open_question"] else "(none)")
+    return "\n".join(parts)
+
+
 def build_instructions(state: MeetingState, elapsed_minutes: float) -> str:
     return _TEMPLATE.format(
         briefing_markdown=state.briefing_markdown,
         phase_state=render_phase(state),
         tracker_state=render_tracker(state.tracker, state.objectives),
         notebook_state=render_notebook(state),
+        followups_state=render_followups(state),
         elapsed_minutes=elapsed_minutes,
         target_minutes=state.target_minutes,
     )

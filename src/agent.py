@@ -137,9 +137,9 @@ async def entrypoint(ctx: JobContext) -> None:
             if text:
                 persist.append_transcript(item.role, text)
 
-    @session.on("user_input_transcribed")
-    def _on_user_turn(ev) -> None:
-        if not ev.is_final:
+    @session.on("user_state_changed")
+    def _on_user_state_changed(ev) -> None:
+        if ev.old_state != "speaking" or ev.new_state != "listening":
             return
         state.user_turn_count += 1
         asyncio.create_task(webapp.publish(state))
