@@ -50,9 +50,11 @@ void main() { gl_Position = vec4(in_pos, 0.0, 1.0); }
 """
 
 
-# An iridescent "consultant orb": volumetric glow, noise-displaced rim,
-# Apple-Intelligence-style cyan→magenta→violet gradient. Pulses with
-# `iAudioAmp`, de-saturates while thinking, brightens while speaking.
+# Smoky/ethereal volumetric form: iterated domain-warping over 3D value noise,
+# then a ridge function turns the smooth field into sharp filament-like
+# contours. The result reads as multiple intertwined wisps of light, softly
+# dispersing at the edges. Pure grayscale, mild warm tint at hottest peaks.
+# Audio amplitude pumps brightness + scale; state nudges motion speed.
 _FRAGMENT_SHADER = """
 #version 330
 out vec4 fragColor;
@@ -62,97 +64,99 @@ uniform float iTime;
 uniform float iAudioAmp;   // 0..1 smoothed RMS of agent's outbound speech
 uniform int   iState;      // 0 listening, 1 thinking, 2 speaking
 
-#define PI 3.14159265
-
-float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+float hash(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
 }
 
-float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
+float vnoise(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    float a = hash(i);
-    float b = hash(i + vec2(1.0, 0.0));
-    float c = hash(i + vec2(0.0, 1.0));
-    float d = hash(i + vec2(1.0, 1.0));
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    float n000 = hash(i + vec3(0.0, 0.0, 0.0));
+    float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+    float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+    float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+    float n001 = hash(i + vec3(0.0, 0.0, 1.0));
+    float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+    float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+    float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+    return mix(
+        mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+        mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+        f.z
+    );
 }
 
-float fbm(vec2 p) {
+float fbm(vec3 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 5; i++) {
-        v += a * noise(p);
-        p *= 2.02;
+        v += a * vnoise(p);
+        p *= 2.03;
         a *= 0.5;
     }
     return v;
 }
 
-// Iridescent palette (Inigo Quilez cosine palette tuned for cyan/magenta/violet).
-vec3 palette(float t) {
-    vec3 a = vec3(0.55, 0.45, 0.65);
-    vec3 b = vec3(0.45, 0.35, 0.45);
-    vec3 c = vec3(1.00, 1.00, 1.00);
-    vec3 d = vec3(0.10, 0.30, 0.65);
-    return a + b * cos(2.0 * PI * (c * t + d));
-}
-
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / min(iResolution.x, iResolution.y);
-    float r = length(uv);
-    float ang = atan(uv.y, uv.x);
 
-    // Base radius, modulated by audio. Thinking has a gentle pulse instead.
-    float baseR = 0.30;
+    // State-dependent motion tempo.
+    float speed = 0.18;
+    if (iState == 1) speed = 0.30;          // thinking — flowier
+    else if (iState == 2) speed = 0.22 + 0.20 * iAudioAmp;  // speaking — punchier with amp
+
+    // Slow asymmetric drift so the form wanders off-center like the reference.
+    vec2 drift = vec2(sin(iTime * 0.27) * 0.18, cos(iTime * 0.31) * 0.14);
+    uv -= drift;
+
+    // Iterated domain warping (Inigo Quilez warp technique).
+    // Each warp pass folds the field into more complex, fluid filaments.
+    vec3 p = vec3(uv * 1.6, iTime * speed);
+    vec3 q = vec3(
+        fbm(p + vec3(0.0, 0.0, 0.0)),
+        fbm(p + vec3(5.2, 1.3, 0.0)),
+        fbm(p + vec3(8.3, 2.8, 1.7))
+    );
+    vec3 r = vec3(
+        fbm(p + 2.0 * q + vec3(1.7, 9.2, 0.0)),
+        fbm(p + 2.0 * q + vec3(8.3, 2.8, 1.7)),
+        fbm(p + 2.0 * q + vec3(4.1, 6.4, 3.3))
+    );
+    float n = fbm(p + 3.5 * r);
+
+    // Ridge function — turns smooth field into sharp filament contours.
+    float ridge = 1.0 - abs(2.0 * n - 1.0);
+    ridge = pow(ridge, 5.0);
+
+    // Soft radial envelope so the form has a body and fades to black at edges.
+    float d = length(uv);
+    float envelope = exp(-d * 1.4);
+
+    // Audio-driven brightness pump.
     float amp = clamp(iAudioAmp, 0.0, 1.0);
-    if (iState == 2) baseR += 0.10 * amp;
-    if (iState == 1) baseR += 0.012 * sin(iTime * 1.5);
-    if (iState == 0) baseR += 0.008 * sin(iTime * 0.9);
+    float pulse = 1.0 + 1.4 * amp;
+    if (iState == 0) pulse *= 0.65;         // listening: subdued
+    else if (iState == 1) pulse *= 0.85;    // thinking: medium
 
-    // Noise-displaced rim (turbulent perimeter).
-    float n = fbm(vec2(ang * 2.5 + iTime * 0.35, iTime * 0.18));
-    float rim = baseR + 0.045 * (n - 0.5) + 0.06 * amp * (n - 0.5);
+    // Compose: ridges carry the bright filaments, envelope adds soft body.
+    float bright = (ridge * 1.5 + envelope * 0.18) * pulse;
+    bright = clamp(bright, 0.0, 1.6);
 
-    // Soft signed distance to the orb boundary; interior + falloff glow.
-    float d = r - rim;
-    float disc = smoothstep(0.02, -0.04, d);
-    float glow = exp(-max(d, 0.0) * 9.0);
+    // Slight warm tint at hottest peaks (matches the reference's faint amber
+    // glow around the brightest crests).
+    vec3 col = vec3(bright);
+    col += vec3(0.18, 0.10, 0.04) * max(bright - 0.85, 0.0);
 
-    // Coloring: angular + temporal sweep across the iridescent palette.
-    float t = ang / (2.0 * PI) + iTime * 0.08 + 0.6 * n;
-    vec3 col = palette(t);
+    // Tone curve so highlights stay crisp and shadows roll off softly.
+    col = pow(col, vec3(0.92));
 
-    // State tweaks.
-    if (iState == 1) {
-        // Thinking: pull color toward a cool slate.
-        col = mix(vec3(0.45, 0.50, 0.65), col, 0.35);
-    } else if (iState == 2) {
-        // Speaking: brighten and slightly warm.
-        col *= 1.10 + 0.20 * amp;
-    } else {
-        // Listening/idle: gentle dim.
-        col *= 0.85;
-    }
+    // Alpha follows brightness so the form composites cleanly on dark UIs.
+    float alpha = clamp(bright * 1.1, 0.0, 1.0);
 
-    // Composite: bright interior + soft external bloom.
-    vec3 final = col * (disc * 0.85 + glow * 0.55);
-    float alpha = clamp(disc + glow * 0.5, 0.0, 1.0);
-
-    // Inner highlight (off-axis) for depth.
-    vec2 hilightOff = vec2(-0.10, 0.12);
-    float hr = length(uv - hilightOff);
-    float hilite = exp(-hr * 14.0) * 0.35;
-    final += vec3(1.0) * hilite * disc;
-
-    // Subtle film-grain to avoid banding.
-    float grain = (hash(gl_FragCoord.xy + iTime) - 0.5) * 0.015;
-    final += grain;
-
-    // Tone-mapping-ish: gentle gamma + clamp.
-    final = pow(max(final, 0.0), vec3(0.90));
-    fragColor = vec4(final, alpha);
+    fragColor = vec4(col, alpha);
 }
 """
 
