@@ -50,11 +50,12 @@ void main() { gl_Position = vec4(in_pos, 0.0, 1.0); }
 """
 
 
-# Smoky/ethereal volumetric form: iterated domain-warping over 3D value noise,
-# then a ridge function turns the smooth field into sharp filament-like
-# contours. The result reads as multiple intertwined wisps of light, softly
-# dispersing at the edges. Pure grayscale, mild warm tint at hottest peaks.
-# Audio amplitude pumps brightness + scale; state nudges motion speed.
+# Centered stack of overlapping wispy ring loops: each ring is a soft
+# glowing ellipse with a noise-wobbled radius and bright/dim arcs around
+# its circumference. Six rings layered together at different radii,
+# rotations, and aspects produce the intertwined-loops look of the
+# reference image. Audio amplitude pumps brightness; semantic state
+# tweaks rotation speed.
 _FRAGMENT_SHADER = """
 #version 330
 out vec4 fragColor;
@@ -64,96 +65,96 @@ uniform float iTime;
 uniform float iAudioAmp;   // 0..1 smoothed RMS of agent's outbound speech
 uniform int   iState;      // 0 listening, 1 thinking, 2 speaking
 
-float hash(vec3 p) {
-    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-    p += dot(p, p.yzx + 19.19);
-    return fract((p.x + p.y) * p.z);
+float hash2(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 }
 
-float vnoise(vec3 p) {
-    vec3 i = floor(p);
-    vec3 f = fract(p);
+float noise2(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
     f = f * f * (3.0 - 2.0 * f);
-    float n000 = hash(i + vec3(0.0, 0.0, 0.0));
-    float n100 = hash(i + vec3(1.0, 0.0, 0.0));
-    float n010 = hash(i + vec3(0.0, 1.0, 0.0));
-    float n110 = hash(i + vec3(1.0, 1.0, 0.0));
-    float n001 = hash(i + vec3(0.0, 0.0, 1.0));
-    float n101 = hash(i + vec3(1.0, 0.0, 1.0));
-    float n011 = hash(i + vec3(0.0, 1.0, 1.0));
-    float n111 = hash(i + vec3(1.0, 1.0, 1.0));
-    return mix(
-        mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
-        mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
-        f.z
-    );
+    float a = hash2(i);
+    float b = hash2(i + vec2(1.0, 0.0));
+    float c = hash2(i + vec2(0.0, 1.0));
+    float d = hash2(i + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-float fbm(vec3 p) {
+float fbm2(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 5; i++) {
-        v += a * vnoise(p);
-        p *= 2.03;
+    for (int i = 0; i < 4; i++) {
+        v += a * noise2(p);
+        p *= 2.05;
         a *= 0.5;
     }
     return v;
 }
 
+// One wispy ring: rotated, stretched, noise-wobbled radius, with
+// non-uniform brightness around the circumference (creates the look of
+// distinct bright arcs along each ring rather than a uniform halo).
+float ringWisp(vec2 p, float baseR, float angle, vec2 stretch, float thickness,
+               float phase, float speed)
+{
+    float c = cos(angle);
+    float s = sin(angle);
+    p = mat2(c, -s, s, c) * p;
+    p *= stretch;
+
+    float r = length(p);
+    float a = atan(p.y, p.x);
+
+    // Smoky/non-circular boundary — radius wobbles with angular FBM.
+    float wobble = 0.07 * (fbm2(vec2(a * 1.6 + iTime * speed + phase,
+                                     iTime * 0.18 + phase)) - 0.5);
+    float d = abs(r - (baseR + wobble));
+
+    // Soft volumetric falloff (exp gives the smoky edge).
+    float core = exp(-d * 22.0 / thickness);
+
+    // Brightness along the ring is uneven — a few bright lobes per loop.
+    float lobes = 0.45 + 0.55 * cos(a * 2.3 + iTime * speed * 1.4 + phase);
+    return core * (0.4 + 0.9 * lobes);
+}
+
 void main() {
     vec2 uv = (gl_FragCoord.xy - 0.5 * iResolution.xy) / min(iResolution.x, iResolution.y);
 
-    // State-dependent motion tempo.
-    float speed = 0.18;
-    if (iState == 1) speed = 0.30;          // thinking — flowier
-    else if (iState == 2) speed = 0.22 + 0.20 * iAudioAmp;  // speaking — punchier with amp
-
-    // Slow asymmetric drift so the form wanders off-center like the reference.
-    vec2 drift = vec2(sin(iTime * 0.27) * 0.18, cos(iTime * 0.31) * 0.14);
-    uv -= drift;
-
-    // Iterated domain warping (Inigo Quilez warp technique).
-    // Each warp pass folds the field into more complex, fluid filaments.
-    vec3 p = vec3(uv * 1.6, iTime * speed);
-    vec3 q = vec3(
-        fbm(p + vec3(0.0, 0.0, 0.0)),
-        fbm(p + vec3(5.2, 1.3, 0.0)),
-        fbm(p + vec3(8.3, 2.8, 1.7))
-    );
-    vec3 r = vec3(
-        fbm(p + 2.0 * q + vec3(1.7, 9.2, 0.0)),
-        fbm(p + 2.0 * q + vec3(8.3, 2.8, 1.7)),
-        fbm(p + 2.0 * q + vec3(4.1, 6.4, 3.3))
-    );
-    float n = fbm(p + 3.5 * r);
-
-    // Ridge function — turns smooth field into sharp filament contours.
-    float ridge = 1.0 - abs(2.0 * n - 1.0);
-    ridge = pow(ridge, 5.0);
-
-    // Soft radial envelope so the form has a body and fades to black at edges.
-    float d = length(uv);
-    float envelope = exp(-d * 1.4);
-
-    // Audio-driven brightness pump.
     float amp = clamp(iAudioAmp, 0.0, 1.0);
-    float pulse = 1.0 + 1.4 * amp;
-    if (iState == 0) pulse *= 0.65;         // listening: subdued
-    else if (iState == 1) pulse *= 0.85;    // thinking: medium
 
-    // Compose: ridges carry the bright filaments, envelope adds soft body.
-    float bright = (ridge * 1.5 + envelope * 0.18) * pulse;
-    bright = clamp(bright, 0.0, 1.6);
+    // State-dependent rotation tempo for the whole stack.
+    float spin = 0.10;
+    if (iState == 1) spin = 0.18;                 // thinking — restless
+    else if (iState == 2) spin = 0.12 + 0.18 * amp; // speaking — drives with amp
 
-    // Slight warm tint at hottest peaks (matches the reference's faint amber
-    // glow around the brightest crests).
+    // Subtle audio-driven scale breathing.
+    float pulse = 1.0 + 0.10 * amp;
+
+    // Six overlapping rings: different base radii, rotation offsets,
+    // aspect ratios, and phases give the layered look.
+    float total = 0.0;
+    total += ringWisp(uv, 0.30 * pulse, iTime * spin * 1.0,        vec2(1.00, 1.00), 1.0, 0.0,  spin);
+    total += ringWisp(uv, 0.34 * pulse, iTime * spin * 0.85 + 1.0, vec2(1.18, 0.85), 1.0, 2.1,  spin);
+    total += ringWisp(uv, 0.24 * pulse, -iTime * spin * 1.1 + 2.0, vec2(0.88, 1.12), 0.9, 4.3,  spin);
+    total += ringWisp(uv, 0.40 * pulse, iTime * spin * 0.70 + 3.0, vec2(1.07, 0.94), 1.2, 6.5,  spin);
+    total += ringWisp(uv, 0.18 * pulse, -iTime * spin * 1.3,       vec2(1.00, 1.00), 0.85, 8.7, spin);
+    total += ringWisp(uv, 0.46 * pulse, iTime * spin * 0.55 + 5.0, vec2(0.95, 1.05), 1.3, 10.9, spin);
+
+    // Audio brightness pump.
+    float bright = total * (0.85 + 1.4 * amp);
+    if (iState == 0) bright *= 0.75;   // listening: subdued
+
+    bright = clamp(bright, 0.0, 1.8);
+
+    // Slight warm tint at the brightest ring intersections.
     vec3 col = vec3(bright);
-    col += vec3(0.18, 0.10, 0.04) * max(bright - 0.85, 0.0);
+    col += vec3(0.16, 0.10, 0.04) * max(bright - 0.95, 0.0);
 
-    // Tone curve so highlights stay crisp and shadows roll off softly.
-    col = pow(col, vec3(0.92));
+    // Gamma for crisp filaments and soft shadows.
+    col = pow(max(col, 0.0), vec3(0.92));
 
-    // Alpha follows brightness so the form composites cleanly on dark UIs.
+    // Alpha mirrors brightness so the form composites cleanly on dark UIs.
     float alpha = clamp(bright * 1.1, 0.0, 1.0);
 
     fragColor = vec4(col, alpha);
