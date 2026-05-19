@@ -3,6 +3,10 @@
 Used for previewing the frontend without running a real LiveKit session.
 Opens at http://localhost:8767/dev/ (run_id="dev"). The root "/" redirects
 to "/dev/" for convenience.
+
+Requires Redis to be running locally (the webapp reads state from Redis).
+Easiest: `docker compose up -d redis` from the repo root before launching
+this script, or `docker run --rm -p 6379:6379 redis:7-alpine`.
 """
 
 from __future__ import annotations
@@ -163,7 +167,7 @@ async def _redirect_root(_request: web.Request) -> web.Response:
 
 async def main() -> None:
     state = _build_state()
-    register(state)
+    await register(state)
 
     app = build_app()
     app.router.add_get("/", _redirect_root)

@@ -1,74 +1,112 @@
-"""Per-meeting state publisher and module-level registry.
+"""Redis-backed state pub/sub for the per-meeting webapp.
 
-The agent process holds one `StatePublisher` per active meeting, keyed by
-`run_id`. Each publisher snapshots `MeetingState` to JSON and broadcasts to all
-connected SSE subscribers. Subscribers receive the current snapshot on connect
-and every subsequent `publish()` call.
+The agent process writes `MeetingState` snapshots; the webapp process reads
+them. They never share Python objects — Redis is the only thing they share.
+
+Public surface
+==============
+Agent-side writers (need MeetingState):
+    publish(state)        — write latest snapshot + broadcast
+    register(state)       — first publish + mark run active
+    unregister(run_id)    — mark run inactive
+
+Webapp-side readers (no MeetingState import needed):
+    get_state_json(run_id)  — latest snapshot, or None if unknown
+    get_client()            — shared async Redis client
+    events_channel(run_id)  — channel name for pub/sub
+    state_key(run_id)       — key name for the snapshot
+    ping()                  — connectivity check for /healthz
+
+`MeetingState` is referenced only via TYPE_CHECKING so the webapp container
+can import this module without pulling pydantic/livekit/openai transitively.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
+import os
 from typing import TYPE_CHECKING
 
+import redis.asyncio as aioredis
 from loguru import logger
 
 if TYPE_CHECKING:
     from ..harness import MeetingState
 
 
-class StatePublisher:
-    def __init__(self, state: "MeetingState") -> None:
-        self.state: "MeetingState" = state
-        self._subscribers: set[asyncio.Queue[str]] = set()
-
-    def latest_snapshot_json(self) -> str:
-        return json.dumps(self.state.model_dump(mode="json"))
-
-    async def publish(self) -> None:
-        snapshot = self.latest_snapshot_json()
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait(snapshot)
-            except asyncio.QueueFull:
-                logger.warning(
-                    "subscriber queue full for run_id={}; dropping snapshot",
-                    self.state.run_id,
-                )
-
-    def subscribe(self) -> asyncio.Queue[str]:
-        q: asyncio.Queue[str] = asyncio.Queue(maxsize=32)
-        q.put_nowait(self.latest_snapshot_json())
-        self._subscribers.add(q)
-        return q
-
-    def unsubscribe(self, q: asyncio.Queue[str]) -> None:
-        self._subscribers.discard(q)
+_STATE_KEY_TTL_SECONDS = 24 * 3600
+_RUNS_ACTIVE_KEY = "runs:active"
 
 
-_publishers: dict[str, StatePublisher] = {}
+def state_key(run_id: str) -> str:
+    return f"state:{run_id}"
 
 
-def register(state: "MeetingState") -> StatePublisher:
-    pub = StatePublisher(state)
-    _publishers[state.run_id] = pub
-    logger.info("registered state publisher for run_id={}", state.run_id)
-    return pub
+def events_channel(run_id: str) -> str:
+    return f"events:{run_id}"
 
 
-def unregister(run_id: str) -> None:
-    _publishers.pop(run_id, None)
+_client: aioredis.Redis | None = None
 
 
-def get_publisher(run_id: str) -> StatePublisher | None:
-    return _publishers.get(run_id)
+def get_client() -> aioredis.Redis:
+    global _client
+    if _client is None:
+        url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        _client = aioredis.from_url(url, decode_responses=True)
+    return _client
+
+
+def _snapshot_json(state: "MeetingState") -> str:
+    return json.dumps(state.model_dump(mode="json"))
 
 
 async def publish(state: "MeetingState") -> None:
-    """Broadcast the latest state for `state.run_id`. No-op if unregistered."""
-    pub = _publishers.get(state.run_id)
-    if pub is None:
-        return
-    pub.state = state
-    await pub.publish()
+    """Broadcast the latest snapshot for `state.run_id`.
+
+    Sets `state:<run_id>` (24h TTL) and publishes on `events:<run_id>`. Any
+    Redis error is logged and swallowed — losing one publish must not crash
+    the realtime agent.
+    """
+    snapshot = _snapshot_json(state)
+    client = get_client()
+    try:
+        await client.set(state_key(state.run_id), snapshot, ex=_STATE_KEY_TTL_SECONDS)
+        await client.publish(events_channel(state.run_id), snapshot)
+    except Exception as e:
+        logger.warning("publish failed for run_id={}: {}", state.run_id, e)
+
+
+async def register(state: "MeetingState") -> None:
+    """Mark a new run as active and publish its initial snapshot."""
+    client = get_client()
+    try:
+        await client.sadd(_RUNS_ACTIVE_KEY, state.run_id)
+    except Exception as e:
+        logger.warning("sadd runs:active failed for run_id={}: {}", state.run_id, e)
+    await publish(state)
+    logger.info("registered run_id={}", state.run_id)
+
+
+async def unregister(run_id: str) -> None:
+    """Remove a run from `runs:active`. The snapshot key lives until its TTL."""
+    try:
+        await get_client().srem(_RUNS_ACTIVE_KEY, run_id)
+    except Exception as e:
+        logger.warning("srem runs:active failed for run_id={}: {}", run_id, e)
+
+
+async def get_state_json(run_id: str) -> str | None:
+    """Return the latest snapshot JSON, or None if no such run."""
+    try:
+        return await get_client().get(state_key(run_id))
+    except Exception as e:
+        logger.warning("get state failed for run_id={}: {}", run_id, e)
+        return None
+
+
+async def ping() -> bool:
+    try:
+        return bool(await get_client().ping())
+    except Exception:
+        return False

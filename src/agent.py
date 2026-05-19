@@ -63,8 +63,6 @@ def _parse_metadata(raw: str | None) -> dict:
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
-    webapp.start_server(int(os.environ.get("WEBAPP_PORT", "8765")))
-
     meta = _parse_metadata(ctx.job.metadata)
     briefing_path = Path(meta["briefing_path"])
     run_id: str = meta["run_id"]
@@ -93,7 +91,7 @@ async def entrypoint(ctx: JobContext) -> None:
         template=template,
         current_phase=template.phases[0].id,
     )
-    webapp.register(state)
+    await webapp.register(state)
 
     webapp_base = os.environ.get(
         "WEBAPP_PUBLIC_URL",
@@ -156,6 +154,7 @@ async def entrypoint(ctx: JobContext) -> None:
             state.ended_at = datetime.now(timezone.utc)
         persist.flush_state(state)
         await webapp.publish(state)
+        await webapp.unregister(state.run_id)
         logger.info("flushed state to {}", persist.run_dir)
 
     ctx.add_shutdown_callback(_flush_on_shutdown)

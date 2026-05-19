@@ -1,9 +1,15 @@
 """aiohttp routes for the per-meeting read-only view.
 
+The agent process writes meeting state to Redis; this server reads it.
+There is no direct connection to the agent — every route is satisfied by
+a Redis `GET` (for `/state`), a `SUBSCRIBE` (for `/events`), or a static
+file from the bundled frontend (for `/<run_id>/` and `/assets/*`).
+
 Routes:
 - GET /<run_id>/         → frontend/dist/index.html
-- GET /<run_id>/state    → JSON snapshot of MeetingState
-- GET /<run_id>/events   → SSE stream of MeetingState snapshots
+- GET /<run_id>/state    → JSON snapshot of MeetingState (from Redis)
+- GET /<run_id>/events   → SSE stream of MeetingState snapshots (Redis pub/sub)
+- GET /healthz           → 200 if Redis ping succeeds, 503 otherwise
 - GET /assets/*          → Vite-built static assets
 """
 
@@ -15,7 +21,7 @@ from pathlib import Path
 from aiohttp import web
 from loguru import logger
 
-from .publisher import get_publisher
+from . import publisher
 
 
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
@@ -30,7 +36,7 @@ _BUILD_MISSING_HTML = (
 
 async def _serve_index(request: web.Request) -> web.Response:
     run_id = request.match_info["run_id"]
-    if get_publisher(run_id) is None:
+    if await publisher.get_state_json(run_id) is None:
         return web.Response(status=404, text=f"unknown run_id: {run_id}")
     index = _FRONTEND_DIST / "index.html"
     if not index.exists():
@@ -40,16 +46,16 @@ async def _serve_index(request: web.Request) -> web.Response:
 
 async def _serve_state(request: web.Request) -> web.Response:
     run_id = request.match_info["run_id"]
-    pub = get_publisher(run_id)
-    if pub is None:
+    snapshot = await publisher.get_state_json(run_id)
+    if snapshot is None:
         return web.Response(status=404, text=f"unknown run_id: {run_id}")
-    return web.json_response(pub.state.model_dump(mode="json"))
+    return web.Response(body=snapshot, content_type="application/json")
 
 
 async def _serve_events(request: web.Request) -> web.StreamResponse:
     run_id = request.match_info["run_id"]
-    pub = get_publisher(run_id)
-    if pub is None:
+    initial = await publisher.get_state_json(run_id)
+    if initial is None:
         return web.Response(status=404, text=f"unknown run_id: {run_id}")
 
     response = web.StreamResponse(
@@ -63,25 +69,40 @@ async def _serve_events(request: web.Request) -> web.StreamResponse:
         },
     )
     await response.prepare(request)
-    queue = pub.subscribe()
+    await response.write(f"data: {initial}\n\n".encode())
+
+    pubsub = publisher.get_client().pubsub()
+    channel = publisher.events_channel(run_id)
+    await pubsub.subscribe(channel)
     logger.info("SSE subscriber connected run_id={}", run_id)
     try:
         while True:
-            try:
-                msg = await asyncio.wait_for(queue.get(), timeout=15.0)
-                await response.write(f"data: {msg}\n\n".encode())
-            except asyncio.TimeoutError:
+            msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=15.0)
+            if msg is None:
                 await response.write(b": keepalive\n\n")
+            elif msg.get("type") == "message":
+                data = msg["data"]
+                await response.write(f"data: {data}\n\n".encode())
     except (ConnectionResetError, asyncio.CancelledError):
         pass
     finally:
-        pub.unsubscribe(queue)
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+        except Exception as e:
+            logger.warning("pubsub cleanup failed for run_id={}: {}", run_id, e)
         logger.info("SSE subscriber disconnected run_id={}", run_id)
     return response
 
 
+async def _serve_healthz(_request: web.Request) -> web.Response:
+    ok = await publisher.ping()
+    return web.Response(status=200 if ok else 503, text="ok" if ok else "redis unreachable")
+
+
 def build_app() -> web.Application:
     app = web.Application()
+    app.router.add_get("/healthz", _serve_healthz)
     app.router.add_get("/{run_id}/", _serve_index)
     app.router.add_get("/{run_id}/state", _serve_state)
     app.router.add_get("/{run_id}/events", _serve_events)
