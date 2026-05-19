@@ -35,7 +35,7 @@ from livekit.agents.voice.avatar import (
 )
 from loguru import logger
 
-from .avatar_render import AnimationState, CANVAS, render_frame
+from .avatar_render import AnimationState, CANVAS, push_audio_samples, render_frame
 
 VIDEO_FPS = 24
 AUDIO_SAMPLE_RATE = 24000  # gpt-realtime output rate
@@ -98,9 +98,11 @@ class _OrbVideoGenerator(VideoGenerator):
 
     def _update_amplitude(self, frame: rtc.AudioFrame) -> None:
         # int16 mono PCM → RMS in [0, 1].
-        samples = np.frombuffer(bytes(frame.data), dtype=np.int16).astype(np.float32)
-        if samples.size == 0:
+        samples_i16 = np.frombuffer(bytes(frame.data), dtype=np.int16)
+        if samples_i16.size == 0:
             return
+        push_audio_samples(samples_i16)
+        samples = samples_i16.astype(np.float32)
         rms = float(np.sqrt(np.mean(samples * samples))) / 32768.0
         # Slight perceptual boost so quiet speech still moves the bars.
         boosted = min(1.0, rms * 3.5)
