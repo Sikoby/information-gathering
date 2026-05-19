@@ -2,19 +2,19 @@
 
 A Python prototype that joins a LiveKit room as a senior consultant, runs a meeting based on a free-form markdown briefing, and writes a transcript plus structured findings to disk. A live read-only webapp shows what the agent has captured so far. The briefing is the only thing that changes between meetings.
 
+The system runs as four containers — agent, webapp, dispatch, redis — brokered by a Redis pub/sub spine. See [CLAUDE.md](CLAUDE.md) for the architecture overview.
+
 ## Prerequisites
 
-- Python 3.11+
-- [`uv`](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Node 18+ with `npm` (for the webapp bundle)
+- Docker + Docker Compose (the recommended way to run everything)
 - A LiveKit Cloud project and an OpenAI API key
+- For host-side tooling: Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) (the `scripts/dispatch.py` CLI uses only the stdlib but `uv` makes installs painless if you also want to run scripts locally)
 
 ## One-time setup
 
 ```
-uv sync                                   # installs Python deps into .venv
-cp .env.example .env                      # then edit .env (see table below)
-(cd frontend && npm install && npm run build)
+cp .env.example .env       # fill in LIVEKIT_* and OPENAI_API_KEY
+docker compose build
 ```
 
 Fill in `.env`:
@@ -25,32 +25,22 @@ Fill in `.env`:
 | `LIVEKIT_API_KEY` | LiveKit Cloud API key |
 | `LIVEKIT_API_SECRET` | LiveKit Cloud API secret |
 | `OPENAI_API_KEY` | platform.openai.com |
-
-> No `uv`? Fallback: `python3 -m venv .venv && source .venv/bin/activate && pip install -e .` then run the commands below without the `uv run` prefix.
+| `WEBAPP_PUBLIC_URL` | optional — the URL the agent posts to the room chat (default `http://localhost:8765`). Override when tunneling. |
 
 ## Run a meeting
 
-Two terminals.
-
-**Terminal 1** — worker (leave running, also serves the webapp on :8765):
-
 ```
-uv run python -m src.agent dev
-```
-
-The first run downloads the Silero VAD weights (a few seconds).
-
-**Terminal 2** — dispatch one meeting:
-
-```
+docker compose up -d
 uv run python scripts/dispatch.py --briefing briefings/01_dwh_requirements.md --target-minutes 30
 ```
 
-The dispatch terminal prints a `https://meet.livekit.io/custom?...` URL and a `http://localhost:8765/<run_id>/` URL.
+The dispatch CLI POSTs to the dispatch container at `http://localhost:8766/dispatch` and prints a `https://meet.livekit.io/custom?...` URL and a `http://localhost:8765/<run_id>/` URL.
 
 1. Open the `meet.livekit.io` URL in a browser, allow the mic, and join. The agent speaks first within a second or two.
-2. As soon as you join the room, the agent drops the webapp URL into the room's chat panel — click it (or open the localhost URL from terminal 2) to watch the live cockpit: meeting title, agenda timeline, notebook entries, objectives tracker, and follow-ups updating as you talk.
+2. As soon as you join the room, the agent drops the webapp URL into the room's chat panel — click it (or open the localhost URL from your terminal) to watch the live cockpit: meeting title, agenda timeline, notebook entries, objectives tracker, and follow-ups updating as you talk.
 3. When the agent calls `end_meeting` (or you leave), the worker flushes the run to `out/<run_id>/`.
+
+Logs from any service: `docker compose logs -f agent` (or `webapp`, `dispatch`, `redis`).
 
 ## Swap briefings
 
@@ -68,6 +58,7 @@ Three briefings ship as examples: a data warehouse requirements interview, a Q1 
 If you just want to see the UI with synthetic state (no LiveKit, no microphone):
 
 ```
+docker compose up -d redis             # the preview also reads state from Redis now
 uv run python scripts/preview_dev_server.py
 ```
 
@@ -118,36 +109,56 @@ In plain English: **the briefing is the *what* (this conversation), the template
 
 ## Architecture
 
-1. `scripts/dispatch.py` creates a LiveKit room, mints a stakeholder access token, prints the join URL, and calls `AgentDispatchService.CreateDispatch` with JSON metadata `{briefing_path, run_id, target_minutes}`.
-2. `src/agent.py` is the worker entrypoint. It reads the metadata, copies the briefing into the run directory, runs `src/objectives.py` (one offline `openai.responses.parse` call) to pick a template and extract a typed `list[Objective]`, and constructs a `MeetingState` (Pydantic model in `src/harness.py`). The same process also starts the read-only webapp ([src/webapp/](src/webapp/)) on `WEBAPP_PORT` and posts a clickable link to the room's chat (`lk.chat`) when a participant joins.
-3. The `MeetingState` is attached to `AgentSession.userdata`, so every `function_tool` in `src/tools.py` receives it via `RunContext[MeetingState].userdata`. This is the LangGraph-style state object for this project; the OpenAI Realtime API itself has no server-held state.
-4. The agent runs on `gpt-realtime` with voice `cedar`. `input_audio_transcription` is enabled with `gpt-4o-mini-transcribe`, and the LiveKit `conversation_item_added` event handler appends both user and agent utterances to `transcript.jsonl`.
-5. Every four user turns, the agent's system prompt is refreshed via `agent.update_instructions(...)` so the objective tracker stays in front of the model. Five minutes before the target end, a scheduled task injects a wrap-up nudge.
-6. After every state mutation (turn count, notebook entry, objective status, phase change, followup), `webapp.publish(...)` pushes the new `MeetingState` snapshot to any SSE subscribers — that's how the live viewer updates without polling.
-7. On any close path (`end_meeting` tool, user leaves, error), `JobContext.add_shutdown_callback` flushes the full state to disk.
+The system runs as four containers, brokered by Redis:
+
+| Container | Role |
+| --- | --- |
+| `dispatch` | aiohttp service exposing `POST /dispatch`. Creates the LiveKit room, mints the stakeholder access token, and calls `AgentDispatchService.CreateDispatch` with JSON metadata `{briefing_path, run_id, target_minutes}`. |
+| `agent` | LiveKit worker. Long-running; registers with LiveKit as `briefing-agent` and waits for job offers. On each job: reads metadata, runs `src/objectives.py` (one offline `openai.responses.parse` call) to pick a template and extract a `list[Objective]`, builds a `MeetingState`, runs the meeting on `gpt-realtime` with voice `cedar`, and writes `out/<run_id>/` at shutdown. |
+| `webapp` | aiohttp + SSE. Reads `state:<run_id>` from Redis on `GET /<run_id>/state`; subscribes to `events:<run_id>` for `GET /<run_id>/events`. Stateless. |
+| `redis` | Message bus between agent and webapp. Holds the latest snapshot at `state:<run_id>` (24h TTL) and broadcasts every change on `events:<run_id>`. |
+
+Data flow inside a meeting:
+
+1. `scripts/dispatch.py` (host) POSTs to the dispatch container; dispatch calls LiveKit Cloud and returns the join URLs.
+2. LiveKit Cloud pushes the job offer to one of the agent worker replicas over its WebSocket.
+3. The agent invokes `entrypoint(ctx)`, parses metadata, builds `MeetingState`, and calls `await webapp.register(state)` — that writes the initial snapshot to Redis.
+4. The agent runs the meeting on `gpt-realtime`. `MeetingState` is attached to `AgentSession.userdata`, so every `function_tool` in `src/tools.py` receives it via `RunContext[MeetingState].userdata`. `input_audio_transcription` (`gpt-4o-mini-transcribe`) feeds the LiveKit `conversation_item_added` event handler that appends to `transcript.jsonl`.
+5. Every four user turns, the system prompt is refreshed via `agent.update_instructions(...)` so the objective tracker stays in front of the model. Five minutes before the target end, a scheduled task injects a wrap-up nudge.
+6. After every state mutation (turn count, notebook entry, objective status, phase change, followup), the agent calls `await webapp.publish(state)` — that writes `state:<run_id>` and publishes on `events:<run_id>`. Any browser connected to the webapp via SSE receives the new snapshot.
+7. On any close path (`end_meeting` tool, user leaves, error), `JobContext.add_shutdown_callback` flushes the full state to `out/<run_id>/` and removes the run from `runs:active`.
+
+The agent has **no direct connection** to the webapp or dispatch — everything internal goes through Redis (state pub/sub) or LiveKit Cloud (room dispatch). See [CLAUDE.md](CLAUDE.md) for the diagram.
 
 ## Project layout
 
 ```
 briefings/                three example briefings (markdown)
 src/
-  agent.py                worker entrypoint, event wiring, time warning
+  agent.py                LiveKit worker entrypoint (agent container)
   harness.py              MeetingState (Pydantic) and the prompt builder
   objectives.py           briefing -> (template, objectives) via Responses API
   persistence.py          out/<run_id>/ file IO
   tools.py                function_tools the agent calls during the meeting
   templates/              reusable meeting shapes (requirements, research, eval, generic)
-  webapp/                 aiohttp server that streams MeetingState over SSE
-frontend/                 React + Vite read-only live viewer (DESIGN.md, CLAUDE.md)
+  webapp/                 aiohttp + Redis-backed SSE server (webapp container)
+  dispatch_service/       aiohttp service that creates rooms + dispatches agents (dispatch container)
+frontend/                 React + Vite read-only live viewer (built into webapp image)
 scripts/
-  dispatch.py             create room + token + dispatch
-  preview_dev_server.py   webapp with a synthetic state, for UI iteration
+  dispatch.py             thin CLI that POSTs to the dispatch container
+  preview_dev_server.py   serves the webapp with synthetic state, for UI iteration
   extract_objectives.py   offline test of the extraction step
+Dockerfile.python         agent + dispatch image (multi-stage uv install)
+Dockerfile.webapp         slim webapp image (multi-stage npm build + Python runtime)
+docker-compose.yml        four services: agent, webapp, dispatch, redis
+CLAUDE.md                 system overview; each container directory has its own CLAUDE.md
 ```
 
 ## Notes
 
-- The Silero VAD model is downloaded on first session. To pre-download: `uv run python -m src.agent download-files`.
+- The Silero VAD model is downloaded on first session inside the agent container. To pre-download: `docker compose run --rm agent python -m src.agent download-files`.
 - Voices supported by `gpt-realtime`: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar. Change the `voice=` kwarg in [src/agent.py](src/agent.py) if you prefer another.
 - The agent only accepts explicit dispatches (`agent_name="briefing-agent"`). The worker will not auto-join arbitrary rooms.
-- Webapp port: `WEBAPP_PORT=8765` by default. If you tunnel the webapp (ngrok, Tailscale, etc.) set `WEBAPP_PUBLIC_URL=https://<your-host>` so both the dispatch terminal and the in-room chat message use the reachable URL.
+- Webapp port: `WEBAPP_PORT=8765` by default. If you tunnel the webapp (ngrok, Tailscale, etc.) set `WEBAPP_PUBLIC_URL=https://<your-host>` so both the dispatch response and the in-room chat message use the reachable URL.
+- Scale concurrent meetings: `docker compose up -d --scale agent=N`. Each agent replica registers with LiveKit as `briefing-agent`; LiveKit distributes job offers across them.
+- Scale the live viewer for high-fanout meetings: bump `webapp` replicas (production seam — needs a reverse proxy in front).

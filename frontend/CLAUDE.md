@@ -4,7 +4,9 @@
 
 ## What this is
 
-A read-only live viewer for one meeting run. The Python agent in `../src/` writes a `MeetingState` and publishes snapshots over SSE; this app subscribes and renders. URL is `/<run_id>/`.
+A read-only live viewer for one meeting run. The Python agent in `../src/` writes a `MeetingState` to Redis; the webapp container in `../src/webapp/` reads from Redis and publishes snapshots over SSE; this app subscribes and renders. URL is `/<run_id>/` on whichever host serves the webapp container (defaults to `http://localhost:8765/` for local `docker compose up`).
+
+This bundle is baked into the webapp Docker image at build time (multi-stage `Dockerfile.webapp` runs `npm ci && npm run build` and copies `dist/` into the runtime image). Editing files here does not hot-reload the running container — rebuild with `docker compose build webapp` to see changes, or use the preview dev server (see below).
 
 ## Where things live
 
@@ -34,9 +36,18 @@ frontend/
 
 ## Build & dev
 
-- `pnpm install` then `pnpm build` for a production bundle (the aiohttp server in `../src/webapp/server.py` serves `frontend/dist/`).
-- `pnpm dev` for the Vite dev server. The backend serves dist, so for live UI iteration prefer `pnpm build --watch` or test against a built bundle.
+- `npm install` then `npm run build` for a production bundle. The aiohttp server in `../src/webapp/server.py` serves `frontend/dist/` (baked into the webapp image at build time).
+- `npm run dev` for the Vite dev server. The container serves `dist/`, so for live UI iteration prefer either `npm run build -- --watch` against a real run, or `python scripts/preview_dev_server.py` against synthetic state.
 - Type-check is part of `build` (`tsc -b && vite build`). There is no separate test runner yet.
+
+### Preview with synthetic state
+
+```
+docker compose up -d redis                  # webapp now reads state from Redis
+uv run python scripts/preview_dev_server.py # serves /dev/ on :8767
+```
+
+`preview_dev_server.py` writes a fake `MeetingState` to Redis under `run_id=dev` and starts the webapp on its own port — no LiveKit, no microphone needed.
 
 ## First things to read when adding a UI feature
 
