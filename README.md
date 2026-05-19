@@ -8,6 +8,7 @@ A Python prototype that joins a LiveKit room as a senior consultant, runs a meet
 - [`uv`](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - Node 18+ with `npm` (for the webapp bundle)
 - A LiveKit Cloud project and an OpenAI API key
+- An OpenGL/EGL runtime for the agent's animated face (the avatar renders GLSL shaders via `moderngl`). On Debian/Ubuntu: `apt install libegl1 libegl-mesa0`. macOS works out of the box.
 
 ## One-time setup
 

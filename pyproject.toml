@@ -17,6 +17,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "aiohttp>=3.9",
   "pillow>=10.0",
+  "moderngl>=5.12",
 ]
 
 [tool.hatch.build.targets.wheel]
