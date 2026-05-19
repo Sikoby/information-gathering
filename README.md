@@ -8,6 +8,7 @@ The system runs as four containers — agent, webapp, dispatch, redis — broker
 
 - Docker + Docker Compose (the recommended way to run everything)
 - A LiveKit Cloud project and an OpenAI API key
+- An OpenGL/EGL runtime for the agent's animated face (the avatar renders GLSL shaders via `moderngl`). On Debian/Ubuntu: `apt install libegl1 libegl-mesa0`. macOS works out of the box.
 - For host-side tooling: Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) (the `scripts/dispatch.py` CLI uses only the stdlib but `uv` makes installs painless if you also want to run scripts locally)
 
 ## One-time setup

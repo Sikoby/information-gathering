@@ -28,6 +28,7 @@ from livekit.plugins import openai as oai_plugin, silero
 from loguru import logger
 from openai.types import realtime as openai_realtime
 
+from .avatar import OrbAvatarSession
 from .harness import (
     MeetingState,
     ObjectiveStatus,
@@ -163,6 +164,9 @@ async def entrypoint(ctx: JobContext) -> None:
         instructions=instructions,
         tools=[record_finding, update_objective_status, note_followup, enter_phase, end_meeting],
     )
+
+    avatar = OrbAvatarSession()
+    await avatar.start(session, room=ctx.room)
 
     await session.start(agent=agent, room=ctx.room)
     asyncio.create_task(schedule_time_warning(agent, state))
