@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .schema import NotebookSection, Phase, Template
+from .schema import Section, SectionKind, Template
 
 RESEARCH_TEMPLATE = Template(
     name="research",
@@ -12,74 +12,130 @@ RESEARCH_TEMPLATE = Template(
         "behaviour."
     ),
     sections=[
-        NotebookSection(
-            id="jobs_to_be_done",
-            label="Jobs to be done",
-            description="The outcomes the person is trying to achieve, in their own framing.",
-        ),
-        NotebookSection(
-            id="behaviours",
-            label="Behaviours",
-            description="What the person actually does today: steps, tools, routines.",
-        ),
-        NotebookSection(
-            id="contexts_of_use",
-            label="Contexts of use",
-            description="Where, when, with whom, under what conditions.",
-        ),
-        NotebookSection(
-            id="surprises",
-            label="Surprises",
-            description="Anything the consultant did not expect; signals worth investigating later.",
-        ),
-        NotebookSection(
-            id="hypotheses_tested",
-            label="Hypotheses tested",
-            description=(
-                "Hypotheses the briefing came in with, and whether the conversation "
-                "supported, contradicted, or left them open."
-            ),
-        ),
-        NotebookSection(
-            id="quotes_to_save",
-            label="Quotes to save",
-            description="Verbatim phrasing worth preserving for downstream use.",
-        ),
-    ],
-    phases=[
-        Phase(
+        # ── phases ──
+        Section(
             id="rapport",
-            label="Rapport",
-            goal="Set the person at ease, confirm consent, explain you're listening not selling.",
+            kind=SectionKind.PHASE,
             target_fraction=0.10,
-            sections_in_focus=[],
+            header="Set them at ease; we're listening, not selling.",
+            body="Confirm consent. Explain you're listening, not pitching.",
         ),
-        Phase(
+        Section(
             id="explore_behaviour",
-            label="Explore behaviour",
-            goal=(
-                "Walk through how the person actually does the thing today. "
-                "Concrete, recent examples. Avoid hypothetical 'would you'."
-            ),
+            kind=SectionKind.PHASE,
             target_fraction=0.55,
-            sections_in_focus=["behaviours", "contexts_of_use", "jobs_to_be_done"],
+            header="Walk through what they actually do today.",
+            body=(
+                "Concrete, recent examples. Avoid hypothetical 'would you'. "
+                "Surface jobs, behaviours, contexts of use."
+            ),
         ),
-        Phase(
+        Section(
             id="probe_motivation",
-            label="Probe motivation",
-            goal=(
+            kind=SectionKind.PHASE,
+            target_fraction=0.25,
+            header="Test why this way; surface surprises.",
+            body=(
                 "Why this way, what would they change, what surprised you. "
                 "Test the briefing's hypotheses."
             ),
-            target_fraction=0.25,
-            sections_in_focus=["jobs_to_be_done", "surprises", "hypotheses_tested"],
         ),
-        Phase(
+        Section(
             id="wrap",
-            label="Wrap",
-            goal="Thank them, confirm any follow-up permission, close.",
+            kind=SectionKind.PHASE,
             target_fraction=0.10,
-            sections_in_focus=[],
+            header="Thank them; confirm follow-up permission.",
+        ),
+
+        # ── explore_behaviour children ──
+        Section(
+            id="jobs_to_be_done",
+            kind=SectionKind.TOPIC,
+            parent_id="explore_behaviour",
+            header="The outcomes they're chasing, in their own framing.",
+        ),
+        Section(
+            id="jobs_to_be_done/q_outcome",
+            kind=SectionKind.QUESTION,
+            parent_id="jobs_to_be_done",
+            header="When you do this task, what does done look like for you?",
+        ),
+        Section(
+            id="jobs_to_be_done/q_trigger",
+            kind=SectionKind.QUESTION,
+            parent_id="jobs_to_be_done",
+            header="What kicks off this task in a normal week?",
+        ),
+
+        Section(
+            id="behaviours",
+            kind=SectionKind.TOPIC,
+            parent_id="explore_behaviour",
+            header="What they actually do, step by step.",
+        ),
+        Section(
+            id="behaviours/q_walkthrough",
+            kind=SectionKind.QUESTION,
+            parent_id="behaviours",
+            header="Walk me through the last time you did this — what did you do first?",
+        ),
+        Section(
+            id="behaviours/q_tools",
+            kind=SectionKind.QUESTION,
+            parent_id="behaviours",
+            header="Which tools did you touch, in what order?",
+        ),
+        # Illustrative deeper nesting: one question owns a sub-topic.
+        Section(
+            id="behaviours/handoffs",
+            kind=SectionKind.TOPIC,
+            parent_id="behaviours",
+            header="Where the work crosses people or teams.",
+        ),
+        Section(
+            id="behaviours/handoffs/q_friction",
+            kind=SectionKind.QUESTION,
+            parent_id="behaviours/handoffs",
+            header="Where in those handoffs does work most often stall?",
+        ),
+
+        Section(
+            id="contexts_of_use",
+            kind=SectionKind.TOPIC,
+            parent_id="explore_behaviour",
+            header="Where, when, with whom, under what conditions.",
+        ),
+        Section(
+            id="contexts_of_use/q_where",
+            kind=SectionKind.QUESTION,
+            parent_id="contexts_of_use",
+            header="Are you usually at a desk, on the floor, on the road?",
+        ),
+
+        # ── probe_motivation children ──
+        Section(
+            id="surprises",
+            kind=SectionKind.TOPIC,
+            parent_id="probe_motivation",
+            header="Things you did not expect to hear.",
+        ),
+        Section(
+            id="hypotheses_tested",
+            kind=SectionKind.TOPIC,
+            parent_id="probe_motivation",
+            header="What the briefing assumed; what evidence supports or breaks it.",
+        ),
+        Section(
+            id="hypotheses_tested/q_support",
+            kind=SectionKind.QUESTION,
+            parent_id="hypotheses_tested",
+            header="Does what they're saying match the briefing's hypothesis here?",
+        ),
+        Section(
+            id="quotes_to_save",
+            kind=SectionKind.TOPIC,
+            parent_id="probe_motivation",
+            header="Verbatim phrasing worth preserving.",
         ),
     ],
 )

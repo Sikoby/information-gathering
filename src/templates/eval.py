@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .schema import NotebookSection, Phase, Template
+from .schema import Section, SectionKind, Template
 
 EVAL_TEMPLATE = Template(
     name="eval",
@@ -12,79 +12,123 @@ EVAL_TEMPLATE = Template(
         "commercial terms."
     ),
     sections=[
-        NotebookSection(
-            id="requirements_coverage",
-            label="Requirements coverage",
-            description="Which of our requirements the vendor claims to meet, with evidence.",
-        ),
-        NotebookSection(
-            id="gaps",
-            label="Gaps",
-            description="Requirements the vendor does not meet, or only partially.",
-        ),
-        NotebookSection(
-            id="pricing",
-            label="Pricing",
-            description="Pricing model, ranges, what drives cost up or down.",
-            repeated=False,
-        ),
-        NotebookSection(
-            id="integration_concerns",
-            label="Integration concerns",
-            description="How they integrate with our stack; what work falls on us vs them.",
-        ),
-        NotebookSection(
-            id="references",
-            label="References",
-            description="Comparable customers we could talk to.",
-        ),
-        NotebookSection(
-            id="decision_criteria",
-            label="Decision criteria",
-            description="What the vendor believes will tip our decision either way.",
-            repeated=False,
-        ),
-        NotebookSection(
-            id="timeline",
-            label="Timeline",
-            description="Implementation timeline, contract length, next steps.",
-            repeated=False,
-        ),
-    ],
-    phases=[
-        Phase(
+        # ── phases ──
+        Section(
             id="rapport",
-            label="Rapport",
-            goal="Introduce, confirm agenda, set time expectations.",
+            kind=SectionKind.PHASE,
             target_fraction=0.10,
-            sections_in_focus=[],
+            header="Introduce; confirm agenda and time.",
         ),
-        Phase(
+        Section(
             id="capability_check",
-            label="Capability check",
-            goal=(
-                "Walk through our requirements; press for evidence, not just yes/no. "
-                "Surface gaps and integration concerns."
-            ),
+            kind=SectionKind.PHASE,
             target_fraction=0.50,
-            sections_in_focus=["requirements_coverage", "gaps", "integration_concerns"],
+            header="Match the vendor's offering against our requirements.",
+            body="Press for evidence, not yes/no. Surface gaps and integration concerns.",
         ),
-        Phase(
+        Section(
             id="commercial_terms",
-            label="Commercial terms",
-            goal=(
-                "Probe pricing model, timeline, references, what tips the decision. "
-                "Avoid committing on our side."
-            ),
+            kind=SectionKind.PHASE,
             target_fraction=0.30,
-            sections_in_focus=["pricing", "timeline", "decision_criteria", "references"],
+            header="Probe pricing, timeline, and references.",
+            body="Avoid committing on our side; understand what tips their decision.",
         ),
-        Phase(
+        Section(
             id="wrap",
-            label="Wrap",
-            goal="Summarise gaps, confirm follow-ups, close.",
+            kind=SectionKind.PHASE,
             target_fraction=0.10,
-            sections_in_focus=[],
+            header="Summarise gaps; confirm follow-ups.",
+        ),
+
+        # ── capability_check children ──
+        Section(
+            id="requirements_coverage",
+            kind=SectionKind.TOPIC,
+            parent_id="capability_check",
+            header="Which of our requirements they claim to meet.",
+        ),
+        Section(
+            id="requirements_coverage/q_evidence",
+            kind=SectionKind.QUESTION,
+            parent_id="requirements_coverage",
+            header="What concrete evidence supports each 'yes'?",
+        ),
+        # Illustrative deeper nesting: one specific requirement gets its own subtree.
+        Section(
+            id="requirements_coverage/critical_one",
+            kind=SectionKind.TOPIC,
+            parent_id="requirements_coverage",
+            header="The single most critical requirement, deep-dived.",
+        ),
+        Section(
+            id="requirements_coverage/critical_one/q_demo",
+            kind=SectionKind.QUESTION,
+            parent_id="requirements_coverage/critical_one",
+            header="Can you show this working in a live demo, not slides?",
+        ),
+
+        Section(
+            id="gaps",
+            kind=SectionKind.TOPIC,
+            parent_id="capability_check",
+            header="Requirements the vendor only partially meets.",
+        ),
+        Section(
+            id="gaps/q_workaround",
+            kind=SectionKind.QUESTION,
+            parent_id="gaps",
+            header="What workaround exists for each gap, and at what cost?",
+        ),
+
+        Section(
+            id="integration_concerns",
+            kind=SectionKind.TOPIC,
+            parent_id="capability_check",
+            header="How they integrate; what work falls on us vs them.",
+        ),
+        Section(
+            id="integration_concerns/q_division",
+            kind=SectionKind.QUESTION,
+            parent_id="integration_concerns",
+            header="In a typical integration, what's on us vs on you?",
+        ),
+
+        # ── commercial_terms children ──
+        Section(
+            id="pricing",
+            kind=SectionKind.TOPIC,
+            parent_id="commercial_terms",
+            header="Pricing model and ranges.",
+            repeated=False,
+        ),
+        Section(
+            id="pricing/q_drivers",
+            kind=SectionKind.QUESTION,
+            parent_id="pricing",
+            header="What drives cost up or down most?",
+        ),
+
+        Section(
+            id="timeline",
+            kind=SectionKind.TOPIC,
+            parent_id="commercial_terms",
+            header="Implementation and contract timeline.",
+            repeated=False,
+        ),
+
+        Section(
+            id="references",
+            kind=SectionKind.TOPIC,
+            parent_id="commercial_terms",
+            header="Comparable customers we could talk to.",
+        ),
+
+        Section(
+            id="decision_criteria",
+            kind=SectionKind.TOPIC,
+            parent_id="commercial_terms",
+            header="What the vendor believes will tip our decision.",
+            repeated=False,
         ),
     ],
 )

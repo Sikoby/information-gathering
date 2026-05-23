@@ -6,7 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { extractMeetingTitle } from "@/lib/briefing";
 import { elapsedFraction, formatElapsed } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import type { EndReason, MeetingState } from "@/types";
+import { enclosingPhase, type EndReason, type MeetingState } from "@/types";
 
 function endVariant(reason: EndReason): "destructive" | "success" | "default" {
   if (reason === "blocked") return "destructive";
@@ -39,7 +39,7 @@ export function Header({ state, className }: { state: MeetingState; className?: 
 
   const title = extractMeetingTitle(state.briefing_markdown, state.template.name);
   const briefingName = state.briefing_path.split("/").pop() ?? state.briefing_path;
-  const currentPhase = state.template.phases.find((p) => p.id === state.current_phase);
+  const currentPhase = enclosingPhase(state.sections, state.current_section_id);
   const fraction = elapsedFraction(state.started_at, state.target_minutes, now);
 
   if (state.end_reason) {
@@ -107,8 +107,12 @@ export function Header({ state, className }: { state: MeetingState; className?: 
 
         <div className="flex items-center gap-3">
           {currentPhase && (
-            <Badge variant="default" className="uppercase tracking-wide" title={currentPhase.goal}>
-              {currentPhase.label}
+            <Badge
+              variant="default"
+              className="uppercase tracking-wide"
+              title={currentPhase.body ?? undefined}
+            >
+              {currentPhase.header}
             </Badge>
           )}
           <div className="flex-1">

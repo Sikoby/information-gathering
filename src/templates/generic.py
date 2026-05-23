@@ -1,13 +1,12 @@
-"""Generic fallback template — flat notebook, single phase.
+"""Generic fallback template — single phase, single topic.
 
-Use when no other template clearly fits, or as the safe default when extraction
-is unsure. Preserves the pre-template-library behaviour of a single bucket of
-free-form notes.
+Use when no other template clearly fits. Preserves the pre-template-library
+behaviour of a single bucket of free-form notes.
 """
 
 from __future__ import annotations
 
-from .schema import NotebookSection, Phase, Template
+from .schema import Section, SectionKind, Template
 
 GENERIC_TEMPLATE = Template(
     name="generic",
@@ -16,19 +15,17 @@ GENERIC_TEMPLATE = Template(
         "no other template clearly fits the briefing."
     ),
     sections=[
-        NotebookSection(
-            id="notes",
-            label="Notes",
-            description="Material learnings of any kind.",
-        ),
-    ],
-    phases=[
-        Phase(
-            id="meeting",
-            label="Meeting",
-            goal="Cover the briefing's objectives within the time budget.",
+        Section(
+            id="meeting_phase",
+            kind=SectionKind.PHASE,
             target_fraction=1.0,
-            sections_in_focus=["notes"],
+            header="Cover the briefing within the time budget.",
+        ),
+        Section(
+            id="notes",
+            kind=SectionKind.TOPIC,
+            parent_id="meeting_phase",
+            header="Material learnings of any kind.",
         ),
     ],
 )

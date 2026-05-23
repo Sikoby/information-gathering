@@ -1,9 +1,9 @@
 """LiveKit worker entrypoint for the briefing-driven voice agent.
 
 Reads briefing_path, run_id, target_minutes from ctx.job.metadata (JSON),
-runs offline objectives extraction, builds a typed MeetingState, and starts
-a gpt-realtime session whose system prompt is composed from the briefing
-and the live objective tracker.
+selects a template from the briefing, builds a typed MeetingState, and starts
+a gpt-realtime session whose system prompt is composed from the briefing and
+the live section tree.
 """
 
 from __future__ import annotations
@@ -29,17 +29,25 @@ from loguru import logger
 from openai.types import realtime as openai_realtime
 
 from .avatar import OrbAvatarSession
+from .briefing_plan import select_template
 from .harness import (
     MeetingState,
-    ObjectiveStatus,
     build_instructions,
     elapsed_minutes,
+    new_state_sections,
     schedule_time_warning,
 )
 from . import webapp
-from .objectives import extract_briefing_plan
 from .persistence import Persistence
-from .tools import end_meeting, enter_phase, note_followup, record_finding, update_objective_status
+from .templates import ROOT_SECTION_ID
+from .tools import (
+    deliver_pyramid_summary,
+    end_meeting,
+    frame_meeting,
+    navigate,
+    note_followup,
+    record_finding,
+)
 
 load_dotenv()
 
@@ -74,10 +82,12 @@ async def entrypoint(ctx: JobContext) -> None:
     persist = Persistence(run_id)
     persist.copy_briefing(briefing_path)
 
-    template, objectives, briefing_body = extract_briefing_plan(briefing_markdown)
-    persist.write_objectives(objectives)
+    template, briefing_body = select_template(briefing_markdown)
     logger.info(
-        "template={} objectives={}", template.name, len(objectives)
+        "template={} sections={} phases={}",
+        template.name,
+        len(template.sections),
+        len(template.scheduled_nodes()),
     )
 
     state = MeetingState(
@@ -86,10 +96,9 @@ async def entrypoint(ctx: JobContext) -> None:
         target_minutes=target_minutes,
         started_at=datetime.now(timezone.utc),
         briefing_markdown=briefing_body,
-        objectives=objectives,
-        tracker={o.id: ObjectiveStatus() for o in objectives},
         template=template,
-        current_phase=template.phases[0].id,
+        sections=new_state_sections(template),
+        current_section_id=ROOT_SECTION_ID,
     )
     await webapp.register(state)
 
@@ -162,7 +171,14 @@ async def entrypoint(ctx: JobContext) -> None:
     instructions = build_instructions(state, elapsed_minutes=0.0)
     agent = Agent(
         instructions=instructions,
-        tools=[record_finding, update_objective_status, note_followup, enter_phase, end_meeting],
+        tools=[
+            record_finding,
+            navigate,
+            frame_meeting,
+            deliver_pyramid_summary,
+            note_followup,
+            end_meeting,
+        ],
     )
 
     avatar = OrbAvatarSession()
@@ -172,8 +188,9 @@ async def entrypoint(ctx: JobContext) -> None:
     asyncio.create_task(schedule_time_warning(agent, state))
     await session.generate_reply(
         instructions=(
-            "Greet the stakeholder warmly in two sentences (a brief intro plus "
-            "your first question per the briefing). Begin now."
+            "Open the meeting now. First call frame_meeting(bluf, situation, "
+            "complication), then speak the BLUF + situation + complication + "
+            "agenda aloud in 2–3 sentences. Then navigate to the first phase."
         )
     )
 

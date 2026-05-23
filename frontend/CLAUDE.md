@@ -15,11 +15,15 @@ frontend/
   src/
     App.tsx                 layout + Sidebar + main column
     components/
-      Header.tsx            title, current phase, elapsed, progress bar
-      Agenda.tsx            vertical timeline of template.phases
+      Header.tsx            title, current phase (derived), elapsed, progress bar
+      Breadcrumb.tsx        current tree position (root › phase › topic › question)
+      Agenda.tsx            vertical timeline filtered to PHASE nodes
       Sidebar.tsx           sticky scroll-nav (IntersectionObserver)
-      Notebook.tsx          template.sections + entries
-      Objectives.tsx        objectives + tracker
+      Notebook.tsx          recursive renderer styled by Section.kind
+                            (MeetingCard, PhaseBlock, TopicBlock, QuestionBlock,
+                            ClosingBlock)
+      TransitionLog.tsx     typed navigation history (open / drill_down / zoom_out /
+                            sibling / revisit)
       Followups.tsx         actions / open questions
       Briefing.tsx          raw markdown (collapsible)
       ui/                   shadcn primitives (alert, badge, card, collapsible, progress, separator)
@@ -29,8 +33,11 @@ frontend/
       utils.ts              cn() — clsx + tailwind-merge
     hooks/
       useSnapshot.ts        fetch /state then subscribe to /events SSE
-    types.ts                MeetingState and child types — keep in sync with src/harness.py
-  DESIGN.md                 conventions, typography, state cues
+    types.ts                MeetingState, Section, Transition + tree-walk helpers
+                            (sectionById, childrenOf, pathTo, enclosingPhase,
+                            scheduledNodes, answersUnder)
+                            — keep in sync with src/harness.py + src/templates/schema.py
+  DESIGN.md                 conventions, typography, state cues, kind table
   CLAUDE.md                 this file
 ```
 
@@ -52,16 +59,16 @@ uv run python scripts/preview_dev_server.py # serves /dev/ on :8767
 ## First things to read when adding a UI feature
 
 1. [DESIGN.md](DESIGN.md) — layout, section convention (no `Card` around sections, `Separator` between them), typography, state cues.
-2. [src/types.ts](src/types.ts) — the snapshot shape. The backend source of truth is `../src/harness.py` (MeetingState) and `../src/templates/schema.py` (Template/Phase/NotebookSection).
+2. [src/types.ts](src/types.ts) — the snapshot shape. The backend source of truth is `../src/harness.py` (MeetingState, Transition, TransitionKind) and `../src/templates/schema.py` (Template, Section, SectionKind).
 3. The existing component closest to what you're adding — patterns are intentionally consistent.
 
 ## Conventions worth not violating
 
-- Sections are `<section id="...">` with `scroll-mt-24` and an `<h2>` heading. They are NOT wrapped in `Card`. Use `<Separator />` between sections.
-- Item rows (single notebook entry, single objective) use `rounded-md border bg-card p-3`. That is where `Card`-like styling lives now.
-- Anchor IDs (`agenda`, `notebook`, `section-<id>`, `objectives`, `followups`, `briefing`) are read by `Sidebar.tsx`. If you rename one, update the sidebar.
+- Top-level sections are `<section id="...">` with `scroll-mt-24` and an `<h2>` heading. They are NOT wrapped in `Card`. Use `<Separator />` between them.
+- Item rows (single answer, single phase block) use `rounded-md border bg-card p-3`. That is where `Card`-like styling lives now. Emphasis cards (meeting frame, closing summary) use a thicker border.
+- Anchor IDs (`breadcrumb`, `agenda`, `notebook`, `section-<id>`, `transitions`, `followups`, `briefing`) are read by `Sidebar.tsx`. If you rename one, update the sidebar.
 - Title comes from `state.briefing_markdown` via `extractMeetingTitle`. Don't add a `title` field to MeetingState unless you also update the Python side.
-- Don't reintroduce `PhaseBar` — it was replaced by `Agenda`. The phase-history collapsible lives in `Agenda.tsx`.
+- The active phase is **derived** from the tree (`enclosingPhase(state.sections, state.current_section_id)`), not stored. Don't introduce a separate `current_phase` field.
 
 ## Data flow
 

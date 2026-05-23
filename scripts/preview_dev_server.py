@@ -25,12 +25,11 @@ from src import webapp
 from src.harness import (
     Followup,
     MeetingState,
-    NotebookEntry,
-    ObjectiveStatus,
-    Objective,
-    PhaseTransition,
+    Transition,
+    TransitionKind,
+    new_state_sections,
 )
-from src.templates import TEMPLATES
+from src.templates import ROOT_SECTION_ID, Section, SectionKind, TEMPLATES
 from src.webapp.publisher import register
 from src.webapp.server import build_app
 
@@ -41,74 +40,108 @@ RUN_ID = "dev"
 
 def _build_state() -> MeetingState:
     started = datetime.now(timezone.utc) - timedelta(minutes=7)
-    objectives = [
-        Objective(
-            id="OBJ1",
-            objective="Map upstream source systems",
-            success_criteria="Names of the 3-5 systems the warehouse must ingest.",
-        ),
-        Objective(
-            id="OBJ2",
-            objective="Identify compliance constraints",
-            success_criteria="GDPR / SOC2 / industry-specific requirements named.",
-        ),
-        Objective(
-            id="OBJ3",
-            objective="Confirm cloud preference",
-            success_criteria="A specific cloud or 'no preference' clearly stated.",
-        ),
-        Objective(
-            id="OBJ4",
-            objective="Surface BI tool landscape",
-            success_criteria="Current BI tools and any planned migrations listed.",
-        ),
-    ]
-    tracker = {o.id: ObjectiveStatus() for o in objectives}
-    tracker["OBJ1"].status = "covered"
-    tracker["OBJ1"].note = "Salesforce, Stripe, internal Postgres for orders"
-    tracker["OBJ2"].status = "partial"
-    tracker["OBJ2"].note = "Confirmed GDPR; SOC2 unclear"
-    tracker["OBJ3"].status = "open"
-
     template = TEMPLATES["requirements"]
-    notebook: dict[str, list[NotebookEntry]] = {}
-    notebook["pain_points"] = [
-        NotebookEntry(
-            title="Manual CSV exports from Salesforce",
-            content=(
-                "Analytics team currently re-exports every Monday morning. "
-                "Two-hour manual process; data is stale by Wednesday."
-            ),
-            objective_ids=["OBJ1"],
+    sections = new_state_sections(template)
+
+    # Frame the meeting (as if frame_meeting had been called).
+    root = next(s for s in sections if s.id == ROOT_SECTION_ID)
+    root.header = (
+        "Build a single source of truth for revenue and a daily-refreshed "
+        "warehouse before the EOY budget freeze."
+    )
+    root.body = (
+        "Situation: Sales, Finance, and Product each pull metrics from "
+        "different CSV exports — numbers disagree by ~5%.\n\n"
+        "Complication: A SOC2 audit lands in Q1 and PII residency for EU "
+        "customers must be handled before then."
+    )
+
+    # Simulate a few recorded answers (created by record_finding).
+    def _ans(parent_id: str, header: str, body: str, minutes_in: float) -> Section:
+        return Section(
+            id=f"{parent_id}/a1",
+            parent_id=parent_id,
+            kind=SectionKind.ANSWER,
+            header=header,
+            body=body,
+            ts=started + timedelta(minutes=minutes_in),
+        )
+
+    sections.append(
+        _ans(
+            "pain_points/q_symptom",
+            "Mobile lag",
+            "Sales team reports 60% mobile demand; lag pushes them to competitors.",
+            2.0,
+        )
+    )
+    sections.append(
+        _ans(
+            "pain_points/q_cost",
+            "Two-hour Monday loss",
+            "Analytics team re-exports every Monday morning; data stale by Wednesday.",
+            4.0,
+        )
+    )
+    sections.append(
+        _ans(
+            "constraints/q_source",
+            "GDPR for EU customer data",
+            "Customer PII in Salesforce must remain region-pinned; considering a Frankfurt warehouse.",
+            5.5,
+        )
+    )
+
+    transitions = [
+        Transition(
+            from_section_id=ROOT_SECTION_ID,
+            to_section_id="rapport",
+            kind=TransitionKind.OPEN,
+            crossed_phase_boundary=True,
+            recap=None,
+            bridge=None,
+            preview="Set the room before digging in.",
+            ts=started,
+        ),
+        Transition(
+            from_section_id="rapport",
+            to_section_id="define",
+            kind=TransitionKind.SIBLING,
+            crossed_phase_boundary=True,
+            recap="Rapport done — they're ready.",
+            preview="Pin down concrete pain.",
+            bridge=None,
+            ts=started + timedelta(minutes=1, seconds=30),
+        ),
+        Transition(
+            from_section_id="define",
+            to_section_id="pain_points",
+            kind=TransitionKind.DRILL_DOWN,
+            crossed_phase_boundary=False,
+            recap=None,
+            bridge=None,
+            preview="What hurts today and how much.",
+            ts=started + timedelta(minutes=1, seconds=45),
+        ),
+        Transition(
+            from_section_id="pain_points",
+            to_section_id="pain_points/q_symptom",
+            kind=TransitionKind.DRILL_DOWN,
+            crossed_phase_boundary=False,
+            recap=None,
+            bridge=None,
+            preview=None,
             ts=started + timedelta(minutes=2),
         ),
-        NotebookEntry(
-            title="No single source of truth for revenue",
-            content=(
-                "Finance and product disagree on Q-end numbers because they "
-                "pull from different exports."
-            ),
-            objective_ids=["OBJ1", "OBJ4"],
-            ts=started + timedelta(minutes=4, seconds=20),
-        ),
-    ]
-    notebook["constraints"] = [
-        NotebookEntry(
-            title="GDPR for EU customer data",
-            content=(
-                "Customer PII in Salesforce must remain region-pinned. "
-                "Considering a Frankfurt region warehouse."
-            ),
-            objective_ids=["OBJ2"],
-            ts=started + timedelta(minutes=5, seconds=10),
-        ),
-    ]
-    notebook["must_haves"] = [
-        NotebookEntry(
-            title="Daily refresh of revenue domain",
-            content="Finance needs revenue numbers refreshed by 9 AM each weekday.",
-            objective_ids=[],
-            ts=started + timedelta(minutes=6),
+        Transition(
+            from_section_id="pain_points/q_symptom",
+            to_section_id="pain_points/q_cost",
+            kind=TransitionKind.SIBLING,
+            crossed_phase_boundary=False,
+            recap="Captured mobile lag as the headline pain.",
+            preview=None,
+            bridge=None,
+            ts=started + timedelta(minutes=3),
         ),
     ]
 
@@ -128,23 +161,18 @@ def _build_state() -> MeetingState:
             "- Compliance (GDPR, SOC2, industry-specific)\n\n"
             "Aim for 30 minutes. End with a confirmation of the top three priorities."
         ),
-        objectives=objectives,
-        tracker=tracker,
         template=template,
-        notebook=notebook,
-        current_phase="define",
-        phase_history=[
-            PhaseTransition(
-                phase_id="rapport",
-                note="",
-                ts=started,
-            ),
-            PhaseTransition(
-                phase_id="define",
-                note="Stakeholder ready, moving to substance",
-                ts=started + timedelta(minutes=1, seconds=45),
-            ),
+        sections=sections,
+        current_section_id="pain_points/q_cost",
+        visited_section_ids=[
+            ROOT_SECTION_ID,
+            "rapport",
+            "define",
+            "pain_points",
+            "pain_points/q_symptom",
+            "pain_points/q_cost",
         ],
+        transitions=transitions,
         followups=[
             Followup(
                 item="Send Stripe schema sample to data team",
@@ -178,12 +206,10 @@ async def main() -> None:
     await site.start()
     print(f"preview dev server listening on http://localhost:{PORT}/")
     print(f"navigate to http://localhost:{PORT}/{RUN_ID}/")
-    # Keep the loop alive
     while True:
         await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":
-    # Unused-import suppression for re-exports above
     _ = webapp
     asyncio.run(main())

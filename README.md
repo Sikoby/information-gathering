@@ -38,7 +38,7 @@ uv run python scripts/dispatch.py --briefing briefings/01_dwh_requirements.md --
 The dispatch CLI POSTs to the dispatch container at `http://localhost:8766/dispatch` and prints a `https://meet.livekit.io/custom?...` URL and a `http://localhost:8765/<run_id>/` URL.
 
 1. Open the `meet.livekit.io` URL in a browser, allow the mic, and join. The agent speaks first within a second or two.
-2. As soon as you join the room, the agent drops the webapp URL into the room's chat panel — click it (or open the localhost URL from your terminal) to watch the live cockpit: meeting title, agenda timeline, notebook entries, objectives tracker, and follow-ups updating as you talk.
+2. As soon as you join the room, the agent drops the webapp URL into the room's chat panel — click it (or open the localhost URL from your terminal) to watch the live cockpit: meeting title, tree-position breadcrumb, agenda timeline, recursive notebook (phases → topics → questions → answers), typed transition log, and follow-ups updating as you talk.
 3. When the agent calls `end_meeting` (or you leave), the worker flushes the run to `out/<run_id>/`.
 
 Logs from any service: `docker compose logs -f agent` (or `webapp`, `dispatch`, `redis`).
@@ -71,17 +71,15 @@ These are two different things and the difference matters when you write your ow
 
 A **briefing** (in `briefings/`) is a free-form markdown file describing *this specific meeting* — its purpose, the topics to cover, any time-budget or tone hints. Briefings are what change between meetings; the agent reads exactly one per run. A briefing typically opens with `# Briefing: <Title>` — that title is what the webapp shows as the meeting title.
 
-A **template** (in `src/templates/`) is a reusable, structured meeting *shape* defined in Python. It declares:
+A **template** (in `src/templates/`) is a reusable, structured meeting *shape* defined in Python. A template is a tree of `Section` nodes with a `kind` discriminator:
 
-- the **notebook sections** the agent files findings into — e.g. for `requirements`: pain points, must-haves, nice-to-haves, constraints, success metrics, stakeholders, dependencies;
-- the **phases** the meeting moves through over time — e.g. for `requirements`: Rapport → Define → Prioritise → Wrap, each with a goal sentence and a target fraction of the meeting.
+- the root is the meeting itself (`kind=meeting`); at runtime the agent calls `frame_meeting` to fill in the BLUF (top-of-pyramid one-liner) and the SCQA framing;
+- top-level children are the **phases** (`kind=phase`, each owning a `target_fraction` of the meeting time) — e.g. for `requirements`: Rapport → Define → Prioritise → Wrap;
+- each phase owns **topics** (`kind=topic`) which own **questions** (`kind=question`) which collect **answers** (`kind=answer`, created at runtime by `record_finding`).
 
-Four templates ship: `requirements`, `research`, `eval`, `generic`.
+The phase timeline is just a filter over the tree; "have we covered what we need" is just "how many QUESTION descendants of the current phase still have zero ANSWER children". Four templates ship: `requirements`, `research`, `eval`, `generic`.
 
-When a meeting starts, [src/objectives.py](src/objectives.py) reads the briefing and:
-
-1. picks a template — either from a YAML front-matter `template: <name>` block at the top of the briefing, or by asking `gpt-5-mini` which of the four templates best fits the briefing text;
-2. extracts three to six substantive objectives the consultant must cover.
+When a meeting starts, [src/briefing_plan.py](src/briefing_plan.py) selects a template — either from a YAML front-matter `template: <name>` block at the top of the briefing, or by asking `gpt-5-mini` which of the four templates best fits the briefing text.
 
 Pin a template explicitly with front-matter:
 
@@ -102,11 +100,12 @@ In plain English: **the briefing is the *what* (this conversation), the template
 | File | Contents |
 | --- | --- |
 | `briefing.md` | Copy of the briefing the agent used |
-| `objectives.json` | Structured objectives extracted from the briefing (gpt-5-mini) |
-| `transcript.jsonl` | One JSON object per utterance (`ts`, `role`, `text`) |
-| `findings.json` | Whatever the agent recorded via `record_finding` |
+| `tree.json` | Canonical: the full `Section` tree (template + every ANSWER / CLOSING node created at runtime) |
+| `transitions.json` | Chronological `navigate()` events (typed: open / drill_down / zoom_out / sibling / revisit) |
+| `notebook.json` | Derived view: `{parent_id: [{header, body, ts}, ...]}` for back-compat tooling |
 | `followups.json` | Whatever the agent noted via `note_followup` |
-| `meta.json` | run_id, briefing_path, target_minutes, started_at, ended_at, end_reason, final tracker, turn count |
+| `transcript.jsonl` | One JSON object per utterance (`ts`, `role`, `text`) |
+| `meta.json` | run_id, briefing_path, target_minutes, started_at, ended_at, end_reason, current_section_id, visited_section_ids, turn count |
 
 ## Architecture
 
@@ -115,7 +114,7 @@ The system runs as four containers, brokered by Redis:
 | Container | Role |
 | --- | --- |
 | `dispatch` | aiohttp service exposing `POST /dispatch`. Creates the LiveKit room, mints the stakeholder access token, and calls `AgentDispatchService.CreateDispatch` with JSON metadata `{briefing_path, run_id, target_minutes}`. |
-| `agent` | LiveKit worker. Long-running; registers with LiveKit as `briefing-agent` and waits for job offers. On each job: reads metadata, runs `src/objectives.py` (one offline `openai.responses.parse` call) to pick a template and extract a `list[Objective]`, builds a `MeetingState`, runs the meeting on `gpt-realtime` with voice `cedar`, and writes `out/<run_id>/` at shutdown. |
+| `agent` | LiveKit worker. Long-running; registers with LiveKit as `briefing-agent` and waits for job offers. On each job: reads metadata, runs `src/briefing_plan.py` (one offline `openai.responses.parse` call) to pick a template, builds a `MeetingState` (a deep copy of the template's section tree), runs the meeting on `gpt-realtime` with voice `cedar`, and writes `out/<run_id>/` at shutdown. |
 | `webapp` | aiohttp + SSE. Reads `state:<run_id>` from Redis on `GET /<run_id>/state`; subscribes to `events:<run_id>` for `GET /<run_id>/events`. Stateless. |
 | `redis` | Message bus between agent and webapp. Holds the latest snapshot at `state:<run_id>` (24h TTL) and broadcasts every change on `events:<run_id>`. |
 
@@ -125,8 +124,8 @@ Data flow inside a meeting:
 2. LiveKit Cloud pushes the job offer to one of the agent worker replicas over its WebSocket.
 3. The agent invokes `entrypoint(ctx)`, parses metadata, builds `MeetingState`, and calls `await webapp.register(state)` — that writes the initial snapshot to Redis.
 4. The agent runs the meeting on `gpt-realtime`. `MeetingState` is attached to `AgentSession.userdata`, so every `function_tool` in `src/tools.py` receives it via `RunContext[MeetingState].userdata`. `input_audio_transcription` (`gpt-4o-mini-transcribe`) feeds the LiveKit `conversation_item_added` event handler that appends to `transcript.jsonl`.
-5. Every four user turns, the system prompt is refreshed via `agent.update_instructions(...)` so the objective tracker stays in front of the model. Five minutes before the target end, a scheduled task injects a wrap-up nudge.
-6. After every state mutation (turn count, notebook entry, objective status, phase change, followup), the agent calls `await webapp.publish(state)` — that writes `state:<run_id>` and publishes on `events:<run_id>`. Any browser connected to the webapp via SSE receives the new snapshot.
+5. Every four user turns, the system prompt is refreshed via `agent.update_instructions(...)` so the current tree position and navigation options stay in front of the model. Five minutes before the target end, a scheduled task injects a wrap-up nudge.
+6. After every state mutation (turn count, new ANSWER node, navigation, closing summary, followup), the agent calls `await webapp.publish(state)` — that writes `state:<run_id>` and publishes on `events:<run_id>`. Any browser connected to the webapp via SSE receives the new snapshot.
 7. On any close path (`end_meeting` tool, user leaves, error), `JobContext.add_shutdown_callback` flushes the full state to `out/<run_id>/` and removes the run from `runs:active`.
 
 The agent has **no direct connection** to the webapp or dispatch — everything internal goes through Redis (state pub/sub) or LiveKit Cloud (room dispatch). See [CLAUDE.md](CLAUDE.md) for the diagram.
@@ -137,18 +136,19 @@ The agent has **no direct connection** to the webapp or dispatch — everything 
 briefings/                three example briefings (markdown)
 src/
   agent.py                LiveKit worker entrypoint (agent container)
-  harness.py              MeetingState (Pydantic) and the prompt builder
-  objectives.py           briefing -> (template, objectives) via Responses API
+  harness.py              MeetingState (Pydantic), Transition/TransitionKind, prompt builder
+  briefing_plan.py        briefing -> template selection via Responses API
   persistence.py          out/<run_id>/ file IO
-  tools.py                function_tools the agent calls during the meeting
+  tools.py                function_tools: navigate, record_finding, frame_meeting,
+                          deliver_pyramid_summary, note_followup, end_meeting
   templates/              reusable meeting shapes (requirements, research, eval, generic)
+                          — each is a tree of kinded Section nodes
   webapp/                 aiohttp + Redis-backed SSE server (webapp container)
   dispatch_service/       aiohttp service that creates rooms + dispatches agents (dispatch container)
 frontend/                 React + Vite read-only live viewer (built into webapp image)
 scripts/
   dispatch.py             thin CLI that POSTs to the dispatch container
   preview_dev_server.py   serves the webapp with synthetic state, for UI iteration
-  extract_objectives.py   offline test of the extraction step
 Dockerfile.python         agent + dispatch image (multi-stage uv install)
 Dockerfile.webapp         slim webapp image (multi-stage npm build + Python runtime)
 docker-compose.yml        four services: agent, webapp, dispatch, redis
