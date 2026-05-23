@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Progress,
+  Separator,
+  cn,
+} from "@ig/ui";
 import { extractMeetingTitle } from "@/lib/briefing";
 import { elapsedFraction, formatElapsed } from "@/lib/time";
-import { cn } from "@/lib/utils";
 import type { EndReason, MeetingState } from "@/types";
 
 function endVariant(reason: EndReason): "destructive" | "success" | "default" {
@@ -38,7 +42,6 @@ export function Header({ state, className }: { state: MeetingState; className?: 
   }, [state.end_reason]);
 
   const title = extractMeetingTitle(state.briefing_markdown, state.template.name);
-  const briefingName = state.briefing_path.split("/").pop() ?? state.briefing_path;
   const currentPhase = state.template.phases.find((p) => p.id === state.current_phase);
   const fraction = elapsedFraction(state.started_at, state.target_minutes, now);
 
@@ -51,9 +54,9 @@ export function Header({ state, className }: { state: MeetingState; className?: 
         <div className="mx-auto max-w-7xl px-6 py-6 space-y-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-1 text-sm text-muted-foreground" title={state.briefing_path}>
-              {briefingName}
-            </p>
+            <Badge variant="secondary" className="mt-2 uppercase tracking-wide">
+              {state.template.name}
+            </Badge>
           </div>
           <Alert variant={endVariant(state.end_reason)}>
             <AlertTitle className="text-base">
@@ -78,10 +81,6 @@ export function Header({ state, className }: { state: MeetingState; className?: 
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold tracking-tight truncate">{title}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span title={state.briefing_path} className="truncate">
-                {briefingName}
-              </span>
-              <span aria-hidden>·</span>
               <Badge variant="secondary" className="uppercase tracking-wide">
                 {state.template.name}
               </Badge>

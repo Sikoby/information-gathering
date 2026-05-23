@@ -1,8 +1,6 @@
 import { AlertTriangle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Badge, Separator, cn } from "@ig/ui";
 import { relativeTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
 import type { MeetingState, NotebookEntry, NotebookSection } from "@/types";
 
 function SectionBlock({

@@ -4,8 +4,8 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
+  cn,
+} from "@ig/ui";
 import type { MeetingState } from "@/types";
 
 export function Briefing({ state, className }: { state: MeetingState; className?: string }) {

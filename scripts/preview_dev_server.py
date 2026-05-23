@@ -114,7 +114,6 @@ def _build_state() -> MeetingState:
 
     return MeetingState(
         run_id=RUN_ID,
-        briefing_path="briefings/01_dwh_requirements.md",
         target_minutes=30,
         started_at=started,
         briefing_markdown=(

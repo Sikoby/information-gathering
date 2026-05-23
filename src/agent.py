@@ -1,9 +1,10 @@
 """LiveKit worker entrypoint for the briefing-driven voice agent.
 
-Reads briefing_path, run_id, target_minutes from ctx.job.metadata (JSON),
-runs offline objectives extraction, builds a typed MeetingState, and starts
-a gpt-realtime session whose system prompt is composed from the briefing
-and the live objective tracker.
+Reads briefing_description, run_id, target_minutes (and an optional
+custom_template) from ctx.job.metadata (JSON), runs offline objectives
+extraction, builds a typed MeetingState, and starts a gpt-realtime session
+whose system prompt is composed from the briefing and the live objective
+tracker.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -38,6 +38,7 @@ from .harness import (
 from . import webapp
 from .objectives import extract_briefing_plan
 from .persistence import Persistence
+from .templates import Template
 from .tools import end_meeting, enter_phase, note_followup, record_finding, update_objective_status
 
 load_dotenv()
@@ -47,13 +48,14 @@ def _parse_metadata(raw: str | None) -> dict:
     if not raw:
         raise RuntimeError(
             "Job metadata is empty. This worker only runs on explicit dispatch with "
-            "JSON metadata {briefing_path, run_id, target_minutes}. Use scripts/dispatch.py."
+            "JSON metadata {briefing_description, run_id, target_minutes}. "
+            "Use scripts/dispatch.py or the console."
         )
     try:
         meta = json.loads(raw)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Job metadata is not valid JSON: {e}") from e
-    for key in ("briefing_path", "run_id", "target_minutes"):
+    for key in ("briefing_description", "run_id", "target_minutes"):
         if key not in meta:
             raise RuntimeError(f"Job metadata missing required key: {key}")
     return meta
@@ -63,25 +65,33 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     meta = _parse_metadata(ctx.job.metadata)
-    briefing_path = Path(meta["briefing_path"])
     run_id: str = meta["run_id"]
     target_minutes: int = int(meta["target_minutes"])
-    briefing_markdown = briefing_path.read_text()
+    briefing_markdown: str = meta["briefing_description"]
 
-    logger.info("run_id={} room={} briefing={}", run_id, ctx.room.name, briefing_path)
+    logger.info("run_id={} room={}", run_id, ctx.room.name)
 
     persist = Persistence(run_id)
-    persist.copy_briefing(briefing_path)
+    persist.write_briefing_inline(briefing_markdown)
 
-    template, objectives, briefing_body = extract_briefing_plan(briefing_markdown)
+    custom_template = (
+        Template.model_validate(meta["custom_template"])
+        if "custom_template" in meta
+        else None
+    )
+    template, objectives, briefing_body = extract_briefing_plan(
+        briefing_markdown, custom_template=custom_template
+    )
     persist.write_objectives(objectives)
     logger.info(
-        "template={} objectives={}", template.name, len(objectives)
+        "template={} objectives={} custom_template={}",
+        template.name,
+        len(objectives),
+        custom_template is not None,
     )
 
     state = MeetingState(
         run_id=run_id,
-        briefing_path=str(briefing_path),
         target_minutes=target_minutes,
         started_at=datetime.now(timezone.utc),
         briefing_markdown=briefing_body,
@@ -165,11 +175,16 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     await session.start(agent=agent, room=ctx.room)
+
+    # Wait for a human before greeting — a greeting to an empty room is never heard.
+    await ctx.wait_for_participant()
+    state.started_at = datetime.now(timezone.utc)
+
     asyncio.create_task(schedule_time_warning(agent, state))
     await session.generate_reply(
         instructions=(
-            "Greet the stakeholder warmly in two sentences (a brief intro plus "
-            "your first question per the briefing). Begin now."
+            "Greet the stakeholder warmly in English, in two sentences (a brief "
+            "intro plus your first question per the briefing). Begin now."
         )
     )
 

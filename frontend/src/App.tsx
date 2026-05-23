@@ -6,7 +6,7 @@ import { Header } from "@/components/Header";
 import { Notebook } from "@/components/Notebook";
 import { Objectives } from "@/components/Objectives";
 import { Sidebar } from "@/components/Sidebar";
-import { Separator } from "@/components/ui/separator";
+import { Separator } from "@ig/ui";
 import { useSnapshot } from "@/hooks/useSnapshot";
 
 function getRunId(): string {

@@ -33,11 +33,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Send the path as given (typically relative to repo root). The dispatch
-    # container resolves it inside /app, where ./briefings is mounted at the
-    # same relative location.
+    # The dispatch service takes the briefing inline as raw markdown. Read the
+    # file here on the host and send its contents — the containers no longer
+    # mount a briefings volume.
+    if not args.briefing.exists():
+        sys.stderr.write(f"briefing file not found: {args.briefing}\n")
+        sys.exit(1)
     body = json.dumps({
-        "briefing_path": str(args.briefing),
+        "briefing_description": args.briefing.read_text(),
         "target_minutes": args.target_minutes,
     }).encode()
     req = urllib.request.Request(
@@ -62,7 +65,7 @@ def main() -> None:
 
     print(f"run_id        {payload['run_id']}")
     print(f"room          {payload['room']}")
-    print(f"briefing      {payload['briefing_path']}")
+    print(f"briefing      {args.briefing}")
     print(f"target_min    {payload['target_minutes']}")
     print()
     print("Open this URL in a browser, allow mic, and join:")

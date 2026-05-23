@@ -1,3 +1,9 @@
+import type { NotebookSection, Phase, Template } from "@ig/ui";
+
+// Template types live in the shared library (both the viewer and the console
+// use them). Re-exported so existing `@/types` imports keep working.
+export type { NotebookSection, Phase, Template };
+
 export type ObjectiveStatus = {
   status: "open" | "partial" | "covered";
   note: string;
@@ -28,28 +34,6 @@ export type PhaseTransition = {
   ts: string;
 };
 
-export type NotebookSection = {
-  id: string;
-  label: string;
-  description: string;
-  repeated: boolean;
-};
-
-export type Phase = {
-  id: string;
-  label: string;
-  goal: string;
-  target_fraction: number;
-  sections_in_focus: string[];
-};
-
-export type Template = {
-  name: string;
-  description: string;
-  sections: NotebookSection[];
-  phases: Phase[];
-};
-
 export type EndReason =
   | "objectives_met"
   | "time_up"
@@ -59,7 +43,6 @@ export type EndReason =
 
 export type MeetingState = {
   run_id: string;
-  briefing_path: string;
   target_minutes: number;
   started_at: string;
   briefing_markdown: string;

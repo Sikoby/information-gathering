@@ -1,5 +1,5 @@
 import { relativeTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
+import { cn } from "@ig/ui";
 import type { Followup, MeetingState } from "@/types";
 
 function ItemList({ items }: { items: Followup[] }) {

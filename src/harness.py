@@ -52,7 +52,6 @@ class PhaseTransition(BaseModel):
 
 class MeetingState(BaseModel):
     run_id: str
-    briefing_path: str
     target_minutes: int
     started_at: datetime
     briefing_markdown: str
@@ -72,6 +71,7 @@ _TEMPLATE = """\
 # ROLE
 You are a senior consultant attending a client meeting alone. You are professional,
 concise, and warm. You speak in short turns (one or two sentences) and listen.
+Always speak English, regardless of the language the briefing below is written in.
 
 # MEETING BRIEFING  (verbatim, swappable)
 <<<

@@ -1,12 +1,12 @@
 import { Check, Circle } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
+  Badge,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  cn,
+} from "@ig/ui";
 import { relativeTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
 import type { MeetingState, Phase } from "@/types";
 
 type PhaseStatus = "visited" | "current" | "upcoming";

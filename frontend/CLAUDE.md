@@ -6,7 +6,9 @@
 
 A read-only live viewer for one meeting run. The Python agent in `../src/` writes a `MeetingState` to Redis; the webapp container in `../src/webapp/` reads from Redis and publishes snapshots over SSE; this app subscribes and renders. URL is `/<run_id>/` on whichever host serves the webapp container (defaults to `http://localhost:8765/` for local `docker compose up`).
 
-This bundle is baked into the webapp Docker image at build time (multi-stage `Dockerfile.webapp` runs `npm ci && npm run build` and copies `dist/` into the runtime image). Editing files here does not hot-reload the running container — rebuild with `docker compose build webapp` to see changes, or use the preview dev server (see below).
+This app is an **npm-workspace member** (alongside [`../shared/`](../shared/) and [`../console-frontend/`](../console-frontend/)). Its shadcn primitives and `cn()` come from the shared library `@ig/ui`; only viewer-specific components live here.
+
+This bundle is baked into the webapp Docker image at build time (multi-stage `Dockerfile.webapp` runs `npm ci` within the workspace then `npm run build -w frontend`, and copies `dist/` into the runtime image). Editing files here does not hot-reload the running container — rebuild with `docker compose build webapp` to see changes, or use the preview dev server (see below).
 
 ## Where things live
 
@@ -22,11 +24,9 @@ frontend/
       Objectives.tsx        objectives + tracker
       Followups.tsx         actions / open questions
       Briefing.tsx          raw markdown (collapsible)
-      ui/                   shadcn primitives (alert, badge, card, collapsible, progress, separator)
     lib/
       briefing.ts           extractMeetingTitle (first H1 → strip "Briefing:")
       time.ts               formatElapsed, elapsedFraction, relativeTime
-      utils.ts              cn() — clsx + tailwind-merge
     hooks/
       useSnapshot.ts        fetch /state then subscribe to /events SSE
     types.ts                MeetingState and child types — keep in sync with src/harness.py
@@ -36,8 +36,8 @@ frontend/
 
 ## Build & dev
 
-- `npm install` then `npm run build` for a production bundle. The aiohttp server in `../src/webapp/server.py` serves `frontend/dist/` (baked into the webapp image at build time).
-- `npm run dev` for the Vite dev server. The container serves `dist/`, so for live UI iteration prefer either `npm run build -- --watch` against a real run, or `python scripts/preview_dev_server.py` against synthetic state.
+- `npm install` **at the repo root** installs the whole workspace. `npm run build -w frontend` produces the production bundle; the aiohttp server in `../src/webapp/server.py` serves `frontend/dist/` (baked into the webapp image at build time).
+- `npm run dev -w frontend` for the Vite dev server. The container serves `dist/`, so for live UI iteration prefer either a watch build against a real run, or `python scripts/preview_dev_server.py` against synthetic state.
 - Type-check is part of `build` (`tsc -b && vite build`). There is no separate test runner yet.
 
 ### Preview with synthetic state

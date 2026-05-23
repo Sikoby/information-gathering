@@ -9,6 +9,11 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // @ig/ui is a workspace package consumed as source — keep it out of the
+  // dependency pre-bundler so Vite transpiles its .tsx directly.
+  optimizeDeps: {
+    exclude: ["@ig/ui"],
+  },
   build: {
     outDir: "dist",
   },

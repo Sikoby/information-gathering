@@ -97,15 +97,27 @@ def _extract_via_llm(
 
 
 def extract_briefing_plan(
-    briefing_markdown: str, model: str = "gpt-5-mini"
+    briefing_markdown: str,
+    model: str = "gpt-5-mini",
+    custom_template: Template | None = None,
 ) -> tuple[Template, list[Objective], str]:
     """Pick a template and extract objectives from a briefing.
 
     Returns (template, objectives, body_markdown) where body_markdown is the
     briefing content with any front-matter stripped — this is what gets embedded
     in the live system prompt.
+
+    If `custom_template` is supplied, it is used directly: template selection
+    (front-matter / inference) is skipped, but objectives are still extracted
+    from the briefing body.
     """
     fields, body = split_frontmatter(briefing_markdown)
+
+    if custom_template is not None:
+        _, objectives = _extract_via_llm(body, model=model)
+        logger.info("template supplied by caller: {}", custom_template.name)
+        return custom_template, objectives, body
+
     fm_template_name = fields.get("template")
 
     if fm_template_name and fm_template_name in TEMPLATES:

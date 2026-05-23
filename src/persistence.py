@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,9 +16,6 @@ class Persistence:
         self.run_id = run_id
         self.run_dir = Path(out_root) / run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)
-
-    def copy_briefing(self, briefing_path: str | Path) -> None:
-        shutil.copy(briefing_path, self.run_dir / "briefing.md")
 
     def write_briefing_inline(self, briefing_markdown: str) -> None:
         (self.run_dir / "briefing.md").write_text(briefing_markdown)
@@ -52,7 +48,6 @@ class Persistence:
 
         meta = {
             "run_id": state.run_id,
-            "briefing_path": state.briefing_path,
             "target_minutes": state.target_minutes,
             "model": model_name,
             "template": state.template.name,
