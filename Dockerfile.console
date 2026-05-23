@@ -1,0 +1,23 @@
+# Meeting console API service — aiohttp + redis + pydantic.
+# No livekit, no openai: it calls dispatch / template-generator over HTTP and
+# reads state:<run_id> from Redis as opaque JSON. src/templates is copied only
+# for the Template Pydantic schema (its modules import nothing but pydantic).
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir aiohttp redis loguru pydantic python-dotenv
+
+COPY src/__init__.py ./src/__init__.py
+COPY src/console/ ./src/console/
+COPY src/templates/ ./src/templates/
+
+ENV CONSOLE_PORT=8770
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8770
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "src.console"]

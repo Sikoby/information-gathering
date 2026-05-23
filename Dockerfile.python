@@ -1,0 +1,27 @@
+# Base image for the agent and dispatch services.
+# Two stages: deps (install Python deps once, cache aggressively) and runtime (slim).
+
+FROM python:3.11-slim AS deps
+WORKDIR /app
+RUN pip install --no-cache-dir uv
+COPY pyproject.toml ./
+RUN uv pip install --system --no-cache .
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+# tini reaps zombies and forwards SIGTERM to the Python process so that
+# agent shutdown callbacks (out/<run_id>/ flush) run on `docker stop`.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["/usr/bin/tini", "--"]
+# No CMD — each compose service sets its own command.

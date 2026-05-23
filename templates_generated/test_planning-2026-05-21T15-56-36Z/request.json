@@ -1,0 +1,6 @@
+{
+  "description": "Test\n\nChange nothing from the template",
+  "reference_template": "research",
+  "max_iterations": 3,
+  "name_hint": null
+}

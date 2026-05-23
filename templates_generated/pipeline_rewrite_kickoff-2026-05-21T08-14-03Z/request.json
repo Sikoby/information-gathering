@@ -1,0 +1,6 @@
+{
+  "description": "Pipeline rewrite kickoff\n\nA kickoff meeting with the data platform team to scope the ingestion pipeline rewrite. Cover current pain points, the target architecture, migration risks, and who owns each workstream. End with clear next steps.",
+  "reference_template": "requirements",
+  "max_iterations": 3,
+  "name_hint": null
+}

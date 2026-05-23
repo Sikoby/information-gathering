@@ -1,0 +1,116 @@
+{
+  "name": "mobility_data_publication_prioritization",
+  "description": "Stakeholder interview with a Frankfurt public administration employee working on public transport and traffic data to decide which datasets to publish for citizens, balancing publication/maintenance cost against civic benefit.",
+  "sections": [
+    {
+      "id": "citizen_needs_and_expected_benefits",
+      "label": "Citizen Needs and Expected Benefits",
+      "description": "Capture resident use cases and questions for mobility data, target audiences, evidence of demand (support tickets, portal/search logs, FOI/IFG requests, past downloads, surveys/app feedback), desired behaviors, and measurable impact metrics.",
+      "repeated": true
+    },
+    {
+      "id": "current_data_assets_and_readiness",
+      "label": "Current Data Assets and Readiness",
+      "description": "List existing transport/traffic datasets with scope, owner/system, current internal/external access endpoints, refresh cadence, timeliness, spatial/temporal coverage, quality signals, and known gaps affecting readiness; avoid future-state design choices.",
+      "repeated": true
+    },
+    {
+      "id": "legal_privacy_and_licensing",
+      "label": "Legal, Privacy, and Licensing",
+      "description": "Note GDPR/privacy issues, required anonymization/aggregation, contractual or licensing limits, reuse permissions, and approvals that constrain what can be published and how.",
+      "repeated": true
+    },
+    {
+      "id": "delivery_options_and_costs",
+      "label": "Delivery Options and Costs",
+      "description": "Evaluate future-state publication options (open data portal, bulk files, APIs, dashboards), applicable standards/schemas (e.g., GTFS, GTFS-RT, NeTEx, SIRI, DATEX II, OGC APIs), documentation/support, accessibility/localization, and estimate one-time and ongoing infra/process/staff costs per option.",
+      "repeated": true
+    },
+    {
+      "id": "risks_and_unintended_consequences",
+      "label": "Risks and Unintended Consequences",
+      "description": "Record operational/security sensitivities (e.g., critical infrastructure, CCTV/ANPR), risks of misuse or misinterpretation, equity/digital divide impacts, reputational/political risks, and proposed mitigations (aggregation, delay, rate limits, communications).",
+      "repeated": true
+    },
+    {
+      "id": "interagency_and_operator_dependencies",
+      "label": "Inter-agency and Operator Dependencies",
+      "description": "Identify data ownership boundaries and coordination needs with regional operators/agencies (e.g., RMV, Deutsche Bahn, Hessen Mobil), required MOUs/SLAs/data-sharing terms, upstream/downstream system dependencies, and who must consent to publication.",
+      "repeated": true
+    },
+    {
+      "id": "prioritization_rationale_and_shortlist",
+      "label": "Prioritization Rationale and Shortlist",
+      "description": "Score candidate datasets on citizen value versus cost, constraints, risks, and dependencies; produce a ranked shortlist highlighting quick wins and phased releases with assumptions noted.",
+      "repeated": true
+    },
+    {
+      "id": "stakeholders_and_decision_process",
+      "label": "Stakeholders and Decision Process",
+      "description": "Identify decision-makers, data owners, legal/IT/comms contacts, budget holders, required approval gates, and the timeline for authorizing and executing publication steps.",
+      "repeated": false
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "rapport_and_context",
+      "label": "Rapport and Context Setting",
+      "goal": "Build rapport, clarify objectives and audiences, and align on what success looks like for citizens and the city.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "citizen_needs_and_expected_benefits",
+        "stakeholders_and_decision_process"
+      ]
+    },
+    {
+      "id": "map_current_state",
+      "label": "Map Current Data State",
+      "goal": "Inventory available datasets and understand access/readiness, inter-agency boundaries, and legal/privacy constraints.",
+      "target_fraction": 0.3,
+      "sections_in_focus": [
+        "current_data_assets_and_readiness",
+        "interagency_and_operator_dependencies",
+        "legal_privacy_and_licensing"
+      ]
+    },
+    {
+      "id": "value_and_cost_assessment",
+      "label": "Value and Cost Assessment",
+      "goal": "Estimate citizen benefits and the effort/cost to publish and sustain datasets, considering delivery options, legal constraints, and risks.",
+      "target_fraction": 0.25,
+      "sections_in_focus": [
+        "citizen_needs_and_expected_benefits",
+        "delivery_options_and_costs",
+        "legal_privacy_and_licensing",
+        "risks_and_unintended_consequences"
+      ]
+    },
+    {
+      "id": "prioritization_and_tradeoffs",
+      "label": "Prioritization and Trade-offs",
+      "goal": "Synthesize value, cost, risk, and dependencies into a ranked publication plan and agree on trade-offs and phasing.",
+      "target_fraction": 0.2,
+      "sections_in_focus": [
+        "prioritization_rationale_and_shortlist",
+        "risks_and_unintended_consequences",
+        "interagency_and_operator_dependencies"
+      ]
+    },
+    {
+      "id": "wrap_and_next_steps",
+      "label": "Wrap and Next Steps",
+      "goal": "Confirm decisions, owners, immediate actions, and timelines for approvals and delivery.",
+      "target_fraction": 0.1,
+      "sections_in_focus": [
+        "stakeholders_and_decision_process",
+        "prioritization_rationale_and_shortlist"
+      ]
+    }
+  ]
+}

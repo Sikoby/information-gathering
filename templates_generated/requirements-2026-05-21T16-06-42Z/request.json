@@ -1,0 +1,6 @@
+{
+  "description": "Test 2\n\nTest, use the given template do not change anythinbg",
+  "reference_template": "requirements",
+  "max_iterations": 3,
+  "name_hint": null
+}

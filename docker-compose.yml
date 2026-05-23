@@ -1,0 +1,148 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # AOF persistence so the meeting:* registry survives restarts.
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks: [internal]
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    command: python -m src.agent start
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      WEBAPP_PUBLIC_URL: http://localhost:8765
+    volumes:
+      - ./out:/app/out
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [internal]
+    stop_grace_period: 30s
+
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.webapp
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      WEBAPP_PORT: 8765
+    ports:
+      - "8765:8765"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8765/healthz').read()"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks: [internal, public]
+    # Production seam: deploy.replicas: N with a load balancer in front.
+
+  dispatch:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    command: python -m src.dispatch_service
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DISPATCH_PORT: 8766
+      REDIS_URL: redis://redis:6379/0
+      WEBAPP_PUBLIC_URL: http://localhost:8765
+    ports:
+      - "8766:8766"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [internal, public]
+
+  template-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    command: python -m src.template_generator
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TEMPLATE_GEN_PORT: 8768
+      TEMPLATES_DIR: /app/templates_generated
+    ports:
+      - "8768:8768"
+    volumes:
+      - ./templates_generated:/app/templates_generated
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8768/healthz').read()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [public]
+
+  console:
+    build:
+      context: .
+      dockerfile: Dockerfile.console
+    command: python -m src.console
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CONSOLE_PORT: 8770
+      REDIS_URL: redis://redis:6379/0
+      DISPATCH_URL: http://dispatch:8766
+      TEMPLATE_GEN_URL: http://template-generator:8768
+      WEBAPP_PUBLIC_URL: http://localhost:8765
+    ports:
+      - "8770:8770"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8770/healthz').read()"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks: [internal, public]
+    # Stateless — safe to scale: deploy.replicas: N behind a load balancer.
+
+  console-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.console-frontend
+    restart: unless-stopped
+    ports:
+      - "8769:80"
+    depends_on:
+      - console
+    networks: [public]
+
+networks:
+  internal: {}
+  public: {}
+
+volumes:
+  redis-data: {}

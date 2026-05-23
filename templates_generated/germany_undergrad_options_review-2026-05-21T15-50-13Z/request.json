@@ -1,0 +1,6 @@
+{
+  "description": "Adrians University plans\n\nYou are interviewing Adrian who is planning his next academic steps, i.e. chose of university for under grad studies in Germany. understand which options he is think about, what factors play an important role for his decision",
+  "reference_template": null,
+  "max_iterations": 3,
+  "name_hint": null
+}

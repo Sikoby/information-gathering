@@ -1,0 +1,110 @@
+{
+  "name": "research_topic_interview",
+  "description": "A conversational interview to understand a friend's current research: topic, objectives, methods, progress, challenges, needed support, timelines, and planned outputs.",
+  "sections": [
+    {
+      "id": "researcher_profile_and_context",
+      "label": "Researcher Profile and Context",
+      "description": "Capture the person's role, affiliation, field/lab, prior relevant work, and motivation for this project to ground the interview.",
+      "repeated": false
+    },
+    {
+      "id": "research_overview_and_objectives",
+      "label": "Research Overview and Objectives",
+      "description": "Summarize the research topic, problem statement, and primary objectives or hypotheses driving the work; exclude methods, results, or timelines.",
+      "repeated": true
+    },
+    {
+      "id": "methods_and_data",
+      "label": "Methods and Data",
+      "description": "Document study design, methodologies, data sources, sampling/participants, instruments, protocols, and analysis techniques/software; exclude results or interpretation.",
+      "repeated": true
+    },
+    {
+      "id": "progress_and_findings_to_date",
+      "label": "Progress and Findings to Date",
+      "description": "Record milestones completed and any preliminary or confirmed results, trends, or evidence with key metrics or sample sizes; exclude future plans or asks.",
+      "repeated": true
+    },
+    {
+      "id": "challenges_and_risks",
+      "label": "Challenges and Risks",
+      "description": "Note blockers, uncertainties, resource gaps, data/IRB or privacy constraints, assumptions and risks, and any mitigation strategies under consideration; exclude scheduling.",
+      "repeated": true
+    },
+    {
+      "id": "timeline_and_upcoming_milestones",
+      "label": "Timeline and Upcoming Milestones",
+      "description": "List key dates, phases, and deadlines (experiments, data collection windows, submissions) and immediate next steps with owners; exclude broader objectives.",
+      "repeated": true
+    },
+    {
+      "id": "outputs_and_dissemination_plan",
+      "label": "Outputs and Dissemination Plan",
+      "description": "Capture planned or actual deliverables such as papers, preprints, datasets, code, talks/posters, and target journals/venues or audiences; exclude raw findings.",
+      "repeated": true
+    },
+    {
+      "id": "collaboration_and_support_needs",
+      "label": "Collaboration and Support Needs",
+      "description": "Identify requests for feedback, collaborators, equipment, funding, analysis help, introductions, or ways the interviewer can assist; exclude general risks without an ask.",
+      "repeated": true
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "warm_up_and_purpose",
+      "label": "Warm-Up and Purpose",
+      "goal": "Build rapport, confirm the interview purpose, and capture essential background to anchor the discussion.",
+      "target_fraction": 0.1,
+      "sections_in_focus": [
+        "researcher_profile_and_context"
+      ]
+    },
+    {
+      "id": "topic_and_goals_alignment",
+      "label": "Topic and Goals Alignment",
+      "goal": "Elicit a clear description of the research topic, problem, and objectives or hypotheses to align on scope.",
+      "target_fraction": 0.25,
+      "sections_in_focus": [
+        "research_overview_and_objectives"
+      ]
+    },
+    {
+      "id": "methods_and_evidence_deep_dive",
+      "label": "Methods and Evidence Deep Dive",
+      "goal": "Understand the study design, data, and what has been learned so far from completed work.",
+      "target_fraction": 0.35,
+      "sections_in_focus": [
+        "methods_and_data",
+        "progress_and_findings_to_date"
+      ]
+    },
+    {
+      "id": "obstacles_and_support",
+      "label": "Obstacles and Support",
+      "goal": "Surface key risks and blockers and agree on specific support or resources that would help.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "challenges_and_risks",
+        "collaboration_and_support_needs"
+      ]
+    },
+    {
+      "id": "planning_outputs_and_wrap",
+      "label": "Planning, Outputs, and Wrap",
+      "goal": "Confirm upcoming milestones, intended outputs, and immediate next steps to close the conversation.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "timeline_and_upcoming_milestones",
+        "outputs_and_dissemination_plan"
+      ]
+    }
+  ]
+}

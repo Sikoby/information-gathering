@@ -1,0 +1,107 @@
+{
+  "name": "germany_undergrad_university_selection",
+  "description": "Interview to plan an undergraduate university choice in Germany by mapping options, clarifying decision criteria, checking admissions feasibility, and organizing external deadlines and owned actions for applications.",
+  "sections": [
+    {
+      "id": "academic_profile_and_goals",
+      "label": "Academic Profile and Goals",
+      "description": "Capture the student's intended field(s), academic record/strengths, language proficiency (German/English with test status), citizenship/residency (EU vs non‑EU) and country/curriculum of secondary schooling (HZB/Anabin or APS/visa relevance), and long‑term goals to anchor fit and feasibility.",
+      "repeated": false
+    },
+    {
+      "id": "candidate_universities_and_programs",
+      "label": "Candidate Universities and Programs",
+      "description": "Record each specific university and bachelor program under consideration with degree title, language of instruction, location, and intake semester label (Winter/Summer only—no specific dates), plus the student’s reason for interest; do not include admissions requirements here.",
+      "repeated": true
+    },
+    {
+      "id": "admissions_requirements_and_eligibility",
+      "label": "Admissions Requirements and Eligibility",
+      "description": "List concrete entry requirement types for target programs (grades/NC, subject prerequisites, Studienkolleg, APS, Uni‑Assist, language/tests, documents, selection procedures) and note the student’s current status and any gaps to close; do not capture any deadlines or dates here—put all dates/windows in External Deadlines and Milestones.",
+      "repeated": true
+    },
+    {
+      "id": "decision_criteria_and_priority_weights",
+      "label": "Decision Criteria and Priority Weights",
+      "description": "Define a single global set of decision criteria (e.g., curriculum fit, teaching language, reputation, location, internships, class size, international support) with relative weights or ranking; keep objective costs in Financial Plan and per‑program facts in Candidate Universities.",
+      "repeated": false
+    },
+    {
+      "id": "financial_plan_and_budget",
+      "label": "Financial Plan and Budget",
+      "description": "Provide a consolidated budget view (tuition/semester contributions, estimated living costs by city, expected funding or scholarships, part‑time work assumptions, and budget caps), allowing per‑city/per‑option breakdowns within this single entry.",
+      "repeated": false
+    },
+    {
+      "id": "information_gaps_and_research_tasks",
+      "label": "Information Gaps and Research Tasks",
+      "description": "Capture all unanswered questions and all owned action items (research, outreach, document prep, campus visits, test booking) with clear owner and due date; do not record external portals’ deadlines here—those belong in External Deadlines and Milestones.",
+      "repeated": true
+    },
+    {
+      "id": "stakeholders_and_decision_process",
+      "label": "Stakeholders and Decision Process",
+      "description": "Note who is involved in advising or deciding, who funds the studies, the intended decision cadence and checkpoints, and how tie‑breaks will be resolved.",
+      "repeated": false
+    },
+    {
+      "id": "external_deadlines_and_milestones",
+      "label": "External Deadlines and Milestones",
+      "description": "Record externally set dates/windows and milestones such as application portal open/close periods, test dates/registration windows, Uni‑Assist/APS processing timelines, enrollment periods, and visa appointment lead times; do not list owned actions or assignees here.",
+      "repeated": true
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "rapport_and_goals",
+      "label": "Rapport and Goals",
+      "goal": "Build rapport, clarify the student’s aims for studying in Germany, and agree on success criteria for this conversation.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "academic_profile_and_goals",
+        "stakeholders_and_decision_process"
+      ]
+    },
+    {
+      "id": "surface_options_and_requirements",
+      "label": "Map Options and Requirements",
+      "goal": "Elicit concrete programs/universities in scope, capture their admissions requirement types and current eligibility, establish initial budget constraints, and begin defining the global decision criteria.",
+      "target_fraction": 0.35,
+      "sections_in_focus": [
+        "candidate_universities_and_programs",
+        "admissions_requirements_and_eligibility",
+        "decision_criteria_and_priority_weights",
+        "financial_plan_and_budget"
+      ]
+    },
+    {
+      "id": "evaluate_and_narrow",
+      "label": "Compare and Narrow",
+      "goal": "Evaluate options against priorities and budget to form a prioritized shortlist and surface remaining unknowns.",
+      "target_fraction": 0.3,
+      "sections_in_focus": [
+        "decision_criteria_and_priority_weights",
+        "financial_plan_and_budget",
+        "candidate_universities_and_programs",
+        "information_gaps_and_research_tasks"
+      ]
+    },
+    {
+      "id": "plan_and_wrap",
+      "label": "Plan and Wrap",
+      "goal": "Convert the shortlist into owned actions with due dates and align on external deadlines and decision checkpoints.",
+      "target_fraction": 0.2,
+      "sections_in_focus": [
+        "external_deadlines_and_milestones",
+        "information_gaps_and_research_tasks",
+        "stakeholders_and_decision_process"
+      ]
+    }
+  ]
+}

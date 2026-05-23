@@ -1,0 +1,6 @@
+{
+  "description": "Stakeholder meeting\n\nYou are interviewing a employee of the public administration of frankfurt working with public transport and traffic data. I want to know which data is worth publishing to inform the cities citizen ships. Balance cost to publish and maintain the data to the potential upside for the city.",
+  "reference_template": null,
+  "max_iterations": 3,
+  "name_hint": null
+}

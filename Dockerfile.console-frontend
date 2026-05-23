@@ -1,0 +1,19 @@
+# Console SPA — built within the npm workspace, served by nginx.
+# nginx serves the static bundle and reverse-proxies /api to the console backend.
+
+FROM node:20-slim AS builder
+WORKDIR /repo
+# Every workspace manifest is needed for `npm ci` to resolve the workspace.
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY frontend/package.json ./frontend/
+COPY console-frontend/package.json ./console-frontend/
+RUN npm ci
+COPY shared/ ./shared/
+COPY console-frontend/ ./console-frontend/
+RUN npm run build -w console-frontend
+
+FROM nginx:1.27-alpine AS runtime
+COPY console-frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /repo/console-frontend/dist /usr/share/nginx/html
+EXPOSE 80

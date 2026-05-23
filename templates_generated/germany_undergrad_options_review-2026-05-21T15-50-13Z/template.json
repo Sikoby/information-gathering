@@ -1,0 +1,95 @@
+{
+  "name": "germany_undergrad_options_review",
+  "description": "Discovery interview to understand Adrian’s undergraduate study options in Germany and the decision factors guiding his choice. The outcome is a clarified shortlist, prioritized criteria, light feasibility flags, and immediate research tasks.",
+  "sections": [
+    {
+      "id": "student_background_and_objectives",
+      "label": "Student Background and Objectives",
+      "description": "Capture Adrian’s academic record, language levels, target intake, and long‑term aims that bound feasible study options.",
+      "repeated": false
+    },
+    {
+      "id": "fields_of_study_and_program_features",
+      "label": "Fields of Study and Program Features",
+      "description": "Record target majors/fields and must‑have program characteristics (e.g., English- vs. German‑taught, applied vs. research focus, dual study, accreditation, class size).",
+      "repeated": true
+    },
+    {
+      "id": "university_options_and_rationale",
+      "label": "University Options and Rationale",
+      "description": "List specific German universities/programs under consideration with reasons for interest, initial pros/cons, and fit notes.",
+      "repeated": true
+    },
+    {
+      "id": "decision_criteria_and_preferences",
+      "label": "Decision Criteria and Preferences",
+      "description": "Elicit and prioritize the factors driving the decision; mark must‑haves vs. nice‑to‑haves and assign relative importance/weights.",
+      "repeated": false
+    },
+    {
+      "id": "feasibility_snapshot",
+      "label": "Feasibility Snapshot (Light)",
+      "description": "For each option, note quick feasibility flags: eligibility route hints (direct/Studienkolleg), needed tests (e.g., TestDaF/IELTS/TestAS), current language readiness, ballpark costs, and any clear showstoppers.",
+      "repeated": true
+    },
+    {
+      "id": "comparative_evaluation_and_preference_order",
+      "label": "Comparative Evaluation and Preference Order",
+      "description": "Synthesize how shortlisted options score against top criteria and record a tentative ranking with key justifications and trade‑offs.",
+      "repeated": false
+    },
+    {
+      "id": "research_tasks_and_next_steps",
+      "label": "Research Tasks and Next Steps",
+      "description": "Define focused follow‑ups to inform the decision (e.g., verify admissions route, confirm program details, check housing/costs), with owners and near‑term due dates.",
+      "repeated": true
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "rapport_and_context",
+      "label": "Rapport and Context",
+      "goal": "Build rapport, confirm meeting goals, and capture a concise snapshot of Adrian’s background and aims.",
+      "target_fraction": 0.1,
+      "sections_in_focus": [
+        "student_background_and_objectives"
+      ]
+    },
+    {
+      "id": "options_discovery",
+      "label": "Options Discovery",
+      "goal": "Surface fields of interest and assemble a concrete list of universities/programs Adrian is considering.",
+      "target_fraction": 0.45,
+      "sections_in_focus": [
+        "fields_of_study_and_program_features",
+        "university_options_and_rationale"
+      ]
+    },
+    {
+      "id": "criteria_and_comparative_evaluation",
+      "label": "Criteria and Comparative Evaluation",
+      "goal": "Clarify and prioritize decision criteria, perform a light feasibility check, and compare shortlisted options against the criteria.",
+      "target_fraction": 0.35,
+      "sections_in_focus": [
+        "decision_criteria_and_preferences",
+        "feasibility_snapshot",
+        "comparative_evaluation_and_preference_order"
+      ]
+    },
+    {
+      "id": "wrap_up_and_next_steps",
+      "label": "Wrap‑up and Next Steps",
+      "goal": "Confirm immediate research tasks, owners, and timing to move the decision forward; recap tentative preference.",
+      "target_fraction": 0.1,
+      "sections_in_focus": [
+        "research_tasks_and_next_steps"
+      ]
+    }
+  ]
+}

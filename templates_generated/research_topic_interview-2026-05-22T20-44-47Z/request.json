@@ -1,0 +1,6 @@
+{
+  "description": "Lenards research\n\nYou are interviewing a friend about his current research topic. Find out whathe i working on, what methods he uses, etc.",
+  "reference_template": null,
+  "max_iterations": 3,
+  "name_hint": null
+}

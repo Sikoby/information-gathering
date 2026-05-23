@@ -1,0 +1,109 @@
+{
+  "name": "test_planning",
+  "description": "Software testing planning meeting. The team aligns on objectives, coverage, test design, environments, tooling, risks, and ownership for the upcoming test cycle.",
+  "sections": [
+    {
+      "id": "objectives_and_scope",
+      "label": "Objectives and scope",
+      "description": "Define what the testing must prove or detect and what is explicitly in or out of scope for this cycle.",
+      "repeated": false
+    },
+    {
+      "id": "system_and_release_details",
+      "label": "System and release details",
+      "description": "Record the product/module, release/version, features under test, interfaces, and any constraints or entry/exit criteria.",
+      "repeated": false
+    },
+    {
+      "id": "test_areas_and_coverage",
+      "label": "Test areas and coverage",
+      "description": "List the test types and areas to cover (functional, regression, performance, security), mapped to risks/requirements and depth of coverage.",
+      "repeated": true
+    },
+    {
+      "id": "test_cases_and_scenarios",
+      "label": "Test cases and scenarios",
+      "description": "Capture specific cases, scenarios, and example-based checks to design or execute, with priorities and acceptance criteria.",
+      "repeated": true
+    },
+    {
+      "id": "environments_and_test_data",
+      "label": "Environments and test data",
+      "description": "Specify required environments, configurations, devices/browsers, accounts, and the test data strategy (generation, masking, refresh).",
+      "repeated": true
+    },
+    {
+      "id": "tooling_and_automation",
+      "label": "Tooling and automation",
+      "description": "Decide tools, frameworks, automation approach, CI/CD integration, reporting, and observability needed for the test effort.",
+      "repeated": true
+    },
+    {
+      "id": "risks_dependencies_and_blockers",
+      "label": "Risks, dependencies, and blockers",
+      "description": "Identify risks, external dependencies, constraints, and potential blockers, with owners and mitigation plans.",
+      "repeated": true
+    },
+    {
+      "id": "schedule_and_ownership",
+      "label": "Schedule and ownership",
+      "description": "Set milestones, execution plan, owners and handoffs, communication cadence, and decision checkpoints.",
+      "repeated": false
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "rapport",
+      "label": "Rapport",
+      "goal": "Set the team at ease, confirm purpose and agenda, and establish collaboration norms.",
+      "target_fraction": 0.1,
+      "sections_in_focus": []
+    },
+    {
+      "id": "align_objectives",
+      "label": "Align objectives",
+      "goal": "Agree on testing goals, scope, and system/release context to anchor the rest of the plan.",
+      "target_fraction": 0.2,
+      "sections_in_focus": [
+        "objectives_and_scope",
+        "system_and_release_details"
+      ]
+    },
+    {
+      "id": "coverage_and_risks",
+      "label": "Coverage and risks",
+      "goal": "Decide what to test and why, balancing risk, requirements, and acceptable coverage depth.",
+      "target_fraction": 0.25,
+      "sections_in_focus": [
+        "test_areas_and_coverage",
+        "risks_dependencies_and_blockers"
+      ]
+    },
+    {
+      "id": "design_and_enablement",
+      "label": "Design and enablement",
+      "goal": "Transform coverage into actionable cases and prepare environments, data, and tooling to execute.",
+      "target_fraction": 0.3,
+      "sections_in_focus": [
+        "test_cases_and_scenarios",
+        "environments_and_test_data",
+        "tooling_and_automation"
+      ]
+    },
+    {
+      "id": "wrap_and_commitments",
+      "label": "Wrap and commitments",
+      "goal": "Confirm schedule, owners, success criteria, and concrete next steps; capture any follow-ups.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "schedule_and_ownership"
+      ]
+    }
+  ]
+}

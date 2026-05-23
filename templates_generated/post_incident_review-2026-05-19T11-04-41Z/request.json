@@ -1,0 +1,6 @@
+{
+  "description": "Post-incident review for a production outage. The team walks through the timeline of what happened, identifies the root cause, separates contributing factors from triggers, agrees on follow-up actions with owners, and captures lessons learned. The tone should be blameless and focused on systemic improvements rather than individuals.",
+  "reference_template": "requirements",
+  "max_iterations": 3,
+  "name_hint": null
+}

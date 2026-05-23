@@ -1,0 +1,10 @@
+{
+  "name": "information-gathering-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "frontend",
+    "console-frontend"
+  ]
+}

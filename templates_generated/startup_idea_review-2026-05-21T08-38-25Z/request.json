@@ -1,0 +1,6 @@
+{
+  "description": "Start Up Idea\n\nA meeting to discuss a potential startup idea. The idea is automated it implementation consulting using ai agents. Discuss the other person's view on market potential, challenges, economics, technical feasibility etc. What other topics might be relevant?",
+  "reference_template": "research",
+  "max_iterations": 3,
+  "name_hint": null
+}

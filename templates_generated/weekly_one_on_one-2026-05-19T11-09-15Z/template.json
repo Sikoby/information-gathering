@@ -1,0 +1,105 @@
+{
+  "name": "weekly_one_on_one",
+  "description": "Weekly 1:1 between a manager and direct report to review work, surface blockers early, check well-being, and maintain momentum on growth and priorities.",
+  "sections": [
+    {
+      "id": "current_focus_and_progress",
+      "label": "Current Focus and Progress",
+      "description": "Capture the top active work since the last 1:1—what moved, outcomes, what's still in progress, and notable learnings—briefly, not a full status report.",
+      "repeated": true
+    },
+    {
+      "id": "upcoming_priorities_and_plans",
+      "label": "Upcoming Priorities and Plans",
+      "description": "Record the few most important tasks until the next 1:1, why they matter, expected effort, and planned milestones.",
+      "repeated": true
+    },
+    {
+      "id": "risks_and_blockers",
+      "label": "Risks and Blockers",
+      "description": "Describe any concrete risks or blockers with brief context, suspected root cause, user or business impact, and risk level; any resulting asks or owners should be captured in support_requests_and_commitments.",
+      "repeated": true
+    },
+    {
+      "id": "support_requests_and_commitments",
+      "label": "Support Requests and Commitments",
+      "description": "Review status of open commitments from prior 1:1s and mark each done/blocked/rolled, then capture new or updated requests and commitments with a clear owner, specific next step, and due date; unresolved items should either spawn a risks_and_blockers entry or be re-committed.",
+      "repeated": true
+    },
+    {
+      "id": "feedback_coaching_and_decisions",
+      "label": "Feedback, Coaching, and Decisions",
+      "description": "Capture bidirectional feedback and coaching (report ↔ manager), questions about approach or quality bar, and any decisions that adjust scope, priority, or standards; log decisions and brief rationale here, while any resulting action items/owners/dates go in support_requests_and_commitments.",
+      "repeated": true
+    },
+    {
+      "id": "check_in_and_report_topics",
+      "label": "Check-in and Report-led Topics",
+      "description": "Note how the report is feeling, workload sustainability, morale or team dynamics, and any report-led agenda items or questions they want to discuss that do not fit elsewhere.",
+      "repeated": true
+    },
+    {
+      "id": "recognition_and_wins",
+      "label": "Recognition and Wins",
+      "description": "Call out notable achievements, shipped outcomes, or positive behaviors to reinforce.",
+      "repeated": true
+    },
+    {
+      "id": "career_growth_and_development",
+      "label": "Career Growth and Development",
+      "description": "Document growth topics such as skills to build, role aspirations, stretch opportunities, learning plans, and check-ins on development goals.",
+      "repeated": true
+    },
+    {
+      "id": "other",
+      "label": "Other",
+      "description": "Anything material that doesn't fit a declared section. Prefer declared sections; use this only when nothing else fits.",
+      "repeated": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "rapport_check_in",
+      "label": "Rapport and Check-in",
+      "goal": "Build rapport and understand how the report is doing personally and professionally to set context for the rest of the meeting.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "check_in_and_report_topics",
+        "recognition_and_wins"
+      ]
+    },
+    {
+      "id": "work_review",
+      "label": "Work Review and Blockers",
+      "goal": "Get crisp visibility into current work, review prior commitments, and surface risks early.",
+      "target_fraction": 0.35,
+      "sections_in_focus": [
+        "current_focus_and_progress",
+        "risks_and_blockers",
+        "support_requests_and_commitments"
+      ]
+    },
+    {
+      "id": "planning_alignment",
+      "label": "Planning and Alignment",
+      "goal": "Align on next-week priorities, capture requests, and provide guidance to ensure momentum.",
+      "target_fraction": 0.35,
+      "sections_in_focus": [
+        "upcoming_priorities_and_plans",
+        "support_requests_and_commitments",
+        "feedback_coaching_and_decisions"
+      ]
+    },
+    {
+      "id": "growth_and_wrap",
+      "label": "Growth and Wrap",
+      "goal": "Spend time on development if topics are queued; otherwise, reallocate this time to work review/planning, then confirm owners, dates, and takeaways before closing.",
+      "target_fraction": 0.15,
+      "sections_in_focus": [
+        "career_growth_and_development",
+        "support_requests_and_commitments",
+        "recognition_and_wins"
+      ]
+    }
+  ]
+}
