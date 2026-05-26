@@ -4,38 +4,33 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from . import webapp
-from .templates import Template
+from .templates import (
+    ROOT_SECTION_ID,
+    Section,
+    SectionKind,
+    Template,
+    children_of,
+    children_of_kind,
+    descendants_of,
+    enclosing_phase,
+    path_to,
+    scheduled_nodes,
+    section_by_id,
+)
 
 if TYPE_CHECKING:
     from livekit.agents import Agent
 
 
-class Objective(BaseModel):
-    id: str
-    objective: str
-    success_criteria: str
-
-
-class ObjectiveStatus(BaseModel):
-    status: Literal["open", "partial", "covered"] = "open"
-    note: str = ""
-
-
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class NotebookEntry(BaseModel):
-    title: str
-    content: str
-    objective_ids: list[str] = Field(default_factory=list)
-    ts: datetime = Field(default_factory=_utc_now)
 
 
 class Followup(BaseModel):
@@ -44,28 +39,107 @@ class Followup(BaseModel):
     ts: datetime = Field(default_factory=_utc_now)
 
 
-class PhaseTransition(BaseModel):
-    phase_id: str
-    note: str = ""
+class TransitionKind(str, Enum):
+    SIBLING = "sibling"
+    DRILL_DOWN = "drill_down"
+    ZOOM_OUT = "zoom_out"
+    REVISIT = "revisit"
+    OPEN = "open"
+
+
+class Transition(BaseModel):
+    from_section_id: str | None
+    to_section_id: str
+    kind: TransitionKind
+    crossed_phase_boundary: bool
+    recap: str | None = None
+    bridge: str | None = None
+    preview: str | None = None
     ts: datetime = Field(default_factory=_utc_now)
 
 
 class MeetingState(BaseModel):
     run_id: str
+    briefing_path: str
     target_minutes: int
     started_at: datetime
     briefing_markdown: str
-    objectives: list[Objective]
-    tracker: dict[str, ObjectiveStatus]
     template: Template
-    notebook: dict[str, list[NotebookEntry]] = Field(default_factory=dict)
-    current_phase: str
-    phase_history: list[PhaseTransition] = Field(default_factory=list)
+    sections: list[Section]
+    current_section_id: str = ROOT_SECTION_ID
+    visited_section_ids: list[str] = Field(default_factory=list)
+    transitions: list[Transition] = Field(default_factory=list)
     followups: list[Followup] = Field(default_factory=list)
     user_turn_count: int = 0
     end_reason: str | None = None
     ended_at: datetime | None = None
 
+
+def new_state_sections(template: Template) -> list[Section]:
+    """Deep-copy the template's sections so the state can mutate independently."""
+    return [s.model_copy(deep=True) for s in template.sections]
+
+
+# ---- Transition kind computation + branch helpers ----
+
+
+def _ancestors(sections: list[Section], sid: str) -> list[str]:
+    """Ancestor ids, root-first, EXCLUDING the node itself. Empty if unknown."""
+    chain = path_to(sections, sid)
+    return [s.id for s in chain[:-1]] if chain else []
+
+
+def compute_transition_kind(
+    sections: list[Section],
+    visited: list[str],
+    from_id: str | None,
+    to_id: str,
+) -> TransitionKind:
+    """Categorize a move from `from_id` to `to_id` per the rules in the plan."""
+    if from_id is not None and from_id == to_id:
+        return TransitionKind.REVISIT
+    if from_id is None or from_id == ROOT_SECTION_ID:
+        return TransitionKind.OPEN
+    if to_id in _ancestors(sections, from_id):
+        return TransitionKind.ZOOM_OUT
+    to_node = section_by_id(sections, to_id)
+    if to_node is not None and to_node.parent_id == from_id:
+        return TransitionKind.DRILL_DOWN
+    from_node = section_by_id(sections, from_id)
+    if (
+        from_node is not None
+        and to_node is not None
+        and from_node.parent_id is not None
+        and to_node.parent_id == from_node.parent_id
+    ):
+        return TransitionKind.SIBLING
+    if to_id in visited:
+        return TransitionKind.REVISIT
+    return TransitionKind.SIBLING
+
+
+def summarize_branch(state: "MeetingState", sid: str, limit: int = 3) -> str:
+    """One-liner like '3 answers across 2 questions, notably "X", "Y"'."""
+    answers = [
+        s for s in descendants_of(state.sections, sid) if s.kind == SectionKind.ANSWER
+    ]
+    if not answers:
+        return "no answers captured yet"
+    questions_with_answers = {a.parent_id for a in answers}
+    n_answers = len(answers)
+    n_questions = len(questions_with_answers)
+    notable = ", ".join(f"'{a.header}'" for a in answers[:limit])
+    q_word = "question" if n_questions == 1 else "questions"
+    a_word = "answer" if n_answers == 1 else "answers"
+    return f"{n_answers} {a_word} across {n_questions} {q_word}, notably {notable}"
+
+
+def enumerate_children(state: "MeetingState", sid: str) -> list[Section]:
+    """Direct non-ANSWER children. Used for drill-down enumeration."""
+    return [c for c in children_of(state.sections, sid) if c.kind != SectionKind.ANSWER]
+
+
+# ---- Prompt template + block rendering ----
 
 _TEMPLATE = """\
 # ROLE
@@ -73,26 +147,49 @@ You are a senior consultant attending a client meeting alone. You are profession
 concise, and warm. You speak in short turns (one or two sentences) and listen.
 Always speak English, regardless of the language the briefing below is written in.
 
-# MEETING BRIEFING  (verbatim, swappable)
+# BRIEFING  (verbatim, swappable)
 <<<
 {briefing_markdown}
 >>>
 
 # OPERATING RULES
 1. Read the briefing fully before your first turn.
-2. After every stakeholder turn, silently ask yourself which briefing objectives are covered, partial, or open, what phase you are in, and what is the next-highest-value question.
+2. After every stakeholder turn, silently ask yourself: where am I in the tree, what
+   question is in front of me, what is unanswered nearby, and what would top-down
+   communication say next.
 3. Adapt. Do not run a fixed script. Probe when answers are vague.
-4. When you learn something material, call record_finding(section, title, content, objective_ids?). `section` must be one of the NOTEBOOK section ids below; prefer declared sections over "other".
-5. When you have met the goal of the current phase, or the time profile says it is time, call enter_phase(phase_id, note) to advance. Real conversations loop; going back to an earlier phase is allowed.
-6. When briefing success conditions are met OR the time budget is hit OR the stakeholder signals end of meeting, call end_meeting(reason).
+4. When you learn something material, call record_finding(section_id, header, body).
+   `section_id` should be the QUESTION you're answering; unknown ids fall back to
+   'other/q' automatically.
+5. When you change topics, call navigate(to_section_id). The tool tells you the move
+   kind (open / drill_down / zoom_out / sibling / revisit) and fills in tree-derived
+   material so you have concrete words to speak:
+     - DRILL_DOWN: announce count + children ("I have 3 questions about X, let's
+       start with the first one").
+     - ZOOM_OUT: summarise the level you're leaving before introducing the next.
+     - SIBLING: brief recap of the sibling you finished, then the new one.
+     - REVISIT: explain why you're coming back; remind them of prior captures.
+     - OPEN: state the agenda before announcing the first phase.
+   Speak in your own words — never silently change topic.
+6. When briefing success conditions are met OR the time budget is hit OR the
+   stakeholder signals end of meeting, call end_meeting(reason).
 7. If the stakeholder digresses, follow briefly, then steer back.
 8. Never invent facts. Never read the briefing aloud.
+9. Communicate top-down. Lead every block with the bottom line, then 2–4 supports,
+   then detail.
+10. Open with frame_meeting; speak BLUF + situation + complication + agenda aloud
+    in 2–3 sentences.
+11. Toward the end of the time budget, call deliver_pyramid_summary and speak it
+    pyramid-style.
 
-# PHASE
-{phase_state}
+# MEETING
+{meeting_state}
 
-# OBJECTIVE TRACKER
-{tracker_state}
+# TREE POSITION
+{tree_position}
+
+# NAVIGATION OPTIONS
+{navigation_options}
 
 # NOTEBOOK
 {notebook_state}
@@ -105,63 +202,6 @@ Elapsed: {elapsed_minutes:.1f} min of target {target_minutes} min
 """
 
 
-def render_tracker(tracker: dict[str, ObjectiveStatus], objectives: list[Objective]) -> str:
-    by_id = {o.id: o for o in objectives}
-    bucket: dict[str, list[str]] = {"covered": [], "partial": [], "open": []}
-    for oid, st in tracker.items():
-        obj = by_id.get(oid)
-        if obj is None:
-            continue
-        line = f"- {oid}: {obj.objective}"
-        if st.note:
-            line += f"  // {st.note}"
-        bucket[st.status].append(line)
-
-    sections: list[str] = []
-    for status in ("covered", "partial", "open"):
-        items = bucket[status]
-        sections.append(f"## {status.upper()}")
-        sections.append("\n".join(items) if items else "(none)")
-    return "\n".join(sections)
-
-
-def render_phase(state: MeetingState) -> str:
-    template = state.template
-    current = template.get_phase(state.current_phase)
-    if current is None:
-        return f"Current phase id '{state.current_phase}' is not in template; recover by calling enter_phase with a valid id."
-
-    lines: list[str] = [
-        f"Current: {current.id} ({current.label}) — {current.goal}",
-    ]
-    if current.sections_in_focus:
-        lines.append(f"Sections to fill this phase: {', '.join(current.sections_in_focus)}")
-    else:
-        lines.append("Sections to fill this phase: (none specifically — focus on phase goal)")
-
-    cumulative = 0.0
-    idx = None
-    for i, p in enumerate(template.phases):
-        if p.id == current.id:
-            idx = i
-            break
-        cumulative += p.target_fraction
-
-    if idx is not None and idx + 1 < len(template.phases):
-        next_phase = template.phases[idx + 1]
-        next_start_minute = (cumulative + current.target_fraction) * state.target_minutes
-        lines.append(
-            f"Next phase: {next_phase.id} ({next_phase.label}) — typically begins ~min "
-            f"{next_start_minute:.0f} of {state.target_minutes}"
-        )
-    else:
-        lines.append("Next phase: (this is the final phase)")
-
-    valid_ids = ", ".join(template.phase_ids())
-    lines.append(f"Available phase ids: {valid_ids}")
-    return "\n".join(lines)
-
-
 def _truncate(text: str, limit: int = 160) -> str:
     text = text.strip().replace("\n", " ")
     if len(text) <= limit:
@@ -169,22 +209,189 @@ def _truncate(text: str, limit: int = 160) -> str:
     return text[: limit - 1].rstrip() + "…"
 
 
+def render_meeting(state: MeetingState) -> str:
+    root = section_by_id(state.sections, ROOT_SECTION_ID)
+    if root is None:
+        return "(no root section — something is very wrong)"
+    agenda = " → ".join(s.header for s in scheduled_nodes(state.sections))
+    if root.header == "Meeting" and not root.body:
+        return f"(not yet framed — call frame_meeting)\nAgenda: {agenda}"
+    parts = [
+        f"BLUF: {root.header}",
+    ]
+    if root.body:
+        parts.append(root.body)
+    if agenda:
+        parts.append(f"Agenda: {agenda}")
+    return "\n\n".join(parts)
+
+
+def _kind_glyph(kind: SectionKind) -> str:
+    return {
+        SectionKind.MEETING: "M",
+        SectionKind.TOPIC: "T",
+        SectionKind.QUESTION: "Q",
+        SectionKind.ANSWER: "A",
+    }[kind]
+
+
+def _question_summary(state: MeetingState, q: Section) -> str:
+    n_answers = len(
+        [c for c in children_of(state.sections, q.id) if c.kind == SectionKind.ANSWER]
+    )
+    status = f"{n_answers} answer(s)" if n_answers else "unanswered"
+    return f'{q.id}: "{q.header}" — {status}'
+
+
+def render_tree_position(state: MeetingState, elapsed_minutes: float) -> str:
+    cur_id = state.current_section_id
+    cur = section_by_id(state.sections, cur_id)
+    if cur is None:
+        return f"current_section_id={cur_id!r} not in tree"
+    chain = path_to(state.sections, cur_id)
+    breadcrumb = " › ".join(
+        (f'{_kind_glyph(s.kind)}:{s.id}' if s.id == ROOT_SECTION_ID else f'"{s.header}"')
+        for s in chain
+    )
+    depth = len(chain) - 1
+    lines = [f"Position: {breadcrumb}", f"Depth: {depth}"]
+
+    phase = enclosing_phase(state.sections, cur_id)
+    if phase is not None and phase.target_fraction is not None:
+        phase_budget = phase.target_fraction * state.target_minutes
+        lines.append(
+            f"Enclosing phase: {phase.id} ({phase.header}) — "
+            f"phase budget ≈ {phase_budget:.1f} min, "
+            f"elapsed across meeting {elapsed_minutes:.1f} of {state.target_minutes}"
+        )
+    else:
+        lines.append("Enclosing phase: (none — at root or unscheduled branch)")
+
+    questions = children_of_kind(state.sections, cur_id, SectionKind.QUESTION)
+    if questions:
+        lines.append(f"Child questions ({len(questions)}):")
+        for q in questions:
+            lines.append(f"  - {_question_summary(state, q)}")
+    n_answers_below = len(
+        [s for s in descendants_of(state.sections, cur_id) if s.kind == SectionKind.ANSWER]
+    )
+    lines.append(f"Answers in this branch: {n_answers_below}")
+    return "\n".join(lines)
+
+
+def _navigation_annotation(
+    state: MeetingState, target_id: str
+) -> str:
+    kind = compute_transition_kind(
+        state.sections, state.visited_section_ids, state.current_section_id, target_id
+    )
+    cur_phase = enclosing_phase(state.sections, state.current_section_id)
+    to_phase = enclosing_phase(state.sections, target_id)
+    crossed = (cur_phase.id if cur_phase else None) != (to_phase.id if to_phase else None)
+    target = section_by_id(state.sections, target_id)
+    target_kind = target.kind.value if target else "?"
+    marker = " ↕phase" if crossed else ""
+    return f"[{kind.value}{marker}, {target_kind}]"
+
+
+def render_navigation_options(state: MeetingState) -> str:
+    cur = section_by_id(state.sections, state.current_section_id)
+    if cur is None:
+        return "(current section unknown — cannot enumerate options)"
+
+    lines: list[str] = []
+
+    children = enumerate_children(state, cur.id)
+    if children:
+        lines.append("Children (drill_down):")
+        for c in children:
+            lines.append(f"  - {c.id} {_navigation_annotation(state, c.id)}: {c.header}")
+
+    if cur.parent_id is not None:
+        siblings = [
+            s
+            for s in children_of(state.sections, cur.parent_id)
+            if s.id != cur.id and s.kind != SectionKind.ANSWER
+        ]
+        if siblings:
+            lines.append("Siblings:")
+            for s in siblings:
+                lines.append(
+                    f"  - {s.id} {_navigation_annotation(state, s.id)}: {s.header}"
+                )
+
+    if cur.parent_id is not None and cur.parent_id != ROOT_SECTION_ID:
+        parent = section_by_id(state.sections, cur.parent_id)
+        if parent is not None:
+            lines.append("Ancestor (zoom_out):")
+            lines.append(
+                f"  - {parent.id} {_navigation_annotation(state, parent.id)}: {parent.header}"
+            )
+
+    revisits = [
+        sid
+        for sid in reversed(state.visited_section_ids)
+        if sid != cur.id
+    ]
+    # de-dup while preserving order
+    seen: set[str] = set()
+    revisits = [sid for sid in revisits if not (sid in seen or seen.add(sid))][:3]
+    if revisits:
+        lines.append("Recent visited (revisit):")
+        for sid in revisits:
+            node = section_by_id(state.sections, sid)
+            if node is None:
+                continue
+            lines.append(
+                f"  - {sid} {_navigation_annotation(state, sid)}: {node.header}"
+            )
+
+    if not lines:
+        return "(no navigation targets — current section is isolated)"
+    return "\n".join(lines)
+
+
 def render_notebook(state: MeetingState) -> str:
-    template = state.template
-    parts: list[str] = []
-    for section in template.sections:
-        entries = state.notebook.get(section.id, [])
-        header = f"## {section.label} [{section.id}] ({len(entries)})"
-        parts.append(header)
-        if not entries:
-            parts.append("(empty)")
-            continue
-        for e in entries:
-            line = f"- {e.title}: {_truncate(e.content)}"
-            if e.objective_ids:
-                line += f"  // objectives: {', '.join(e.objective_ids)}"
-            parts.append(line)
-    return "\n".join(parts)
+    """Recursive walk: scheduled TOPICs as ##, nested TOPICs as ###+, questions and answers."""
+    root = section_by_id(state.sections, ROOT_SECTION_ID)
+    if root is None:
+        return "(no root)"
+    lines: list[str] = []
+
+    def walk(node: Section, depth: int) -> None:
+        if node.kind == SectionKind.TOPIC:
+            prefix = "#" * (depth + 1)
+            badge = ""
+            if node.target_fraction is not None:
+                badge = f" [{node.target_fraction:.0%}]"
+            lines.append(f"{prefix} {node.header} ({node.id}){badge}")
+            if node.body:
+                lines.append(_truncate(node.body, 220))
+        elif node.kind == SectionKind.QUESTION:
+            answers = [
+                c for c in children_of(state.sections, node.id) if c.kind == SectionKind.ANSWER
+            ]
+            status = f"{len(answers)} answer(s)" if answers else "unanswered"
+            lines.append(f'Q ({node.id}): "{node.header}" — {status}')
+            for a in answers:
+                lines.append(f"  - **{a.header}** — {_truncate(a.body or '', 220)}")
+            return  # questions own only answers; don't recurse further
+        for child in children_of(state.sections, node.id):
+            if child.kind == SectionKind.ANSWER:
+                continue  # rendered inline by the QUESTION block above
+            walk(child, depth + 1)
+
+    # Top-level walk: scheduled phases first, then non-scheduled top-level TOPICs.
+    for s in scheduled_nodes(state.sections):
+        walk(s, depth=1)
+    non_scheduled = [
+        s
+        for s in children_of(state.sections, ROOT_SECTION_ID)
+        if s.kind == SectionKind.TOPIC and s.target_fraction is None
+    ]
+    for s in non_scheduled:
+        walk(s, depth=1)
+    return "\n".join(lines) if lines else "(notebook empty)"
 
 
 def render_followups(state: MeetingState) -> str:
@@ -202,8 +409,9 @@ def render_followups(state: MeetingState) -> str:
 def build_instructions(state: MeetingState, elapsed_minutes: float) -> str:
     return _TEMPLATE.format(
         briefing_markdown=state.briefing_markdown,
-        phase_state=render_phase(state),
-        tracker_state=render_tracker(state.tracker, state.objectives),
+        meeting_state=render_meeting(state),
+        tree_position=render_tree_position(state, elapsed_minutes),
+        navigation_options=render_navigation_options(state),
         notebook_state=render_notebook(state),
         followups_state=render_followups(state),
         elapsed_minutes=elapsed_minutes,
@@ -223,14 +431,22 @@ async def schedule_time_warning(agent: "Agent", state: MeetingState) -> None:
         return
     elapsed = elapsed_minutes(state)
     body = build_instructions(state, elapsed)
-    has_wrap_phase = any(p.id == "wrap" for p in state.template.phases)
-    if has_wrap_phase and state.current_phase != "wrap":
+    cur_phase = enclosing_phase(state.sections, state.current_section_id)
+    wrap_phase = next(
+        (s for s in scheduled_nodes(state.sections) if "wrap" in s.id),
+        None,
+    )
+    if wrap_phase is not None and (cur_phase is None or cur_phase.id != wrap_phase.id):
         warning = (
-            "\n\n# TIME WARNING\nFive minutes remaining. If you haven't already, "
-            "call enter_phase('wrap', note) and begin wrapping up now."
+            f"\n\n# TIME WARNING\nFive minutes remaining. If you haven't already, "
+            f"call navigate('{wrap_phase.id}') and then deliver_pyramid_summary. "
+            "Begin wrapping up now."
         )
     else:
-        warning = "\n\n# TIME WARNING\nFive minutes remaining. Begin wrapping up now."
+        warning = (
+            "\n\n# TIME WARNING\nFive minutes remaining. Call deliver_pyramid_summary "
+            "and begin wrapping up now."
+        )
     await agent.update_instructions(body + warning)
     await webapp.publish(state)
     logger.info("time warning fired at {:.1f} min elapsed", elapsed)

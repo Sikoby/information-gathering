@@ -1,7 +1,18 @@
 import type { Template } from "@ig/ui";
 
-// Template types come from the shared library. Re-exported for local imports.
-export type { NotebookSection, Phase, Template } from "@ig/ui";
+// Template + Section types come from the shared library. Re-exported for
+// local imports.
+export type { Section, SectionKind, Template } from "@ig/ui";
+export {
+  ROOT_SECTION_ID,
+  OTHER_SECTION_ID,
+  OTHER_QUESTION_ID,
+  CLOSING_SECTION_ID,
+  sectionById,
+  childrenOf,
+  isScheduled,
+  scheduledNodes,
+} from "@ig/ui";
 
 export type MeetingStatus = "planned" | "running" | "done";
 export type TemplateStatus = "generating" | "ready" | "failed";

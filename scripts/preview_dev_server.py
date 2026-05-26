@@ -25,12 +25,17 @@ from src import webapp
 from src.harness import (
     Followup,
     MeetingState,
-    NotebookEntry,
-    ObjectiveStatus,
-    Objective,
-    PhaseTransition,
+    Transition,
+    TransitionKind,
+    new_state_sections,
 )
-from src.templates import TEMPLATES
+from src.templates import (
+    CLOSING_SECTION_ID,
+    ROOT_SECTION_ID,
+    Section,
+    SectionKind,
+    TEMPLATES,
+)
 from src.webapp.publisher import register
 from src.webapp.server import build_app
 
@@ -41,79 +46,145 @@ RUN_ID = "dev"
 
 def _build_state() -> MeetingState:
     started = datetime.now(timezone.utc) - timedelta(minutes=7)
-    objectives = [
-        Objective(
-            id="OBJ1",
-            objective="Map upstream source systems",
-            success_criteria="Names of the 3-5 systems the warehouse must ingest.",
-        ),
-        Objective(
-            id="OBJ2",
-            objective="Identify compliance constraints",
-            success_criteria="GDPR / SOC2 / industry-specific requirements named.",
-        ),
-        Objective(
-            id="OBJ3",
-            objective="Confirm cloud preference",
-            success_criteria="A specific cloud or 'no preference' clearly stated.",
-        ),
-        Objective(
-            id="OBJ4",
-            objective="Surface BI tool landscape",
-            success_criteria="Current BI tools and any planned migrations listed.",
-        ),
-    ]
-    tracker = {o.id: ObjectiveStatus() for o in objectives}
-    tracker["OBJ1"].status = "covered"
-    tracker["OBJ1"].note = "Salesforce, Stripe, internal Postgres for orders"
-    tracker["OBJ2"].status = "partial"
-    tracker["OBJ2"].note = "Confirmed GDPR; SOC2 unclear"
-    tracker["OBJ3"].status = "open"
-
     template = TEMPLATES["requirements"]
-    notebook: dict[str, list[NotebookEntry]] = {}
-    notebook["pain_points"] = [
-        NotebookEntry(
-            title="Manual CSV exports from Salesforce",
-            content=(
-                "Analytics team currently re-exports every Monday morning. "
-                "Two-hour manual process; data is stale by Wednesday."
+    sections = new_state_sections(template)
+
+    # Frame the meeting (what frame_meeting would have written).
+    root = next(s for s in sections if s.id == ROOT_SECTION_ID)
+    root.header = (
+        "We need a phased migration off CSV exports to a region-pinned warehouse."
+    )
+    root.body = (
+        "Situation: Analytics, finance, and product all build from manual CSV "
+        "exports out of Salesforce and Stripe.\n\n"
+        "Complication: Numbers diverge across teams; PII has to stay in the EU "
+        "or compliance flags us."
+    )
+
+    # A few ANSWERs as if record_finding had been called.
+    sections.extend(
+        [
+            Section(
+                id="pain_points/q1/a1",
+                parent_id="pain_points/q1",
+                kind=SectionKind.ANSWER,
+                header="Manual Monday CSV exports",
+                body=(
+                    "Analytics re-exports Salesforce + Stripe every Monday. "
+                    "Two-hour manual process; data is stale by Wednesday."
+                ),
+                ts=started + timedelta(minutes=2),
             ),
-            objective_ids=["OBJ1"],
+            Section(
+                id="pain_points/q1/a2",
+                parent_id="pain_points/q1",
+                kind=SectionKind.ANSWER,
+                header="Revenue numbers diverge across teams",
+                body=(
+                    "Finance and product disagree on Q-end numbers because "
+                    "they pull from different exports."
+                ),
+                ts=started + timedelta(minutes=3),
+            ),
+            Section(
+                id="constraints/q2/a1",
+                parent_id="constraints/q2",
+                kind=SectionKind.ANSWER,
+                header="GDPR for EU customer data",
+                body=(
+                    "Customer PII in Salesforce must remain region-pinned; "
+                    "Frankfurt region warehouse on the table."
+                ),
+                ts=started + timedelta(minutes=4, seconds=30),
+            ),
+            Section(
+                id="pain_points/severity/q1/a1",
+                parent_id="pain_points/severity/q1",
+                kind=SectionKind.ANSWER,
+                header="Happens every week",
+                body="The CSV process happens every Monday without fail.",
+                ts=started + timedelta(minutes=5),
+            ),
+        ]
+    )
+
+    # A closing TOPIC as if deliver_pyramid_summary had been called once
+    # (the synthetic state shows the post-summary look).
+    sections.append(
+        Section(
+            id=CLOSING_SECTION_ID,
+            parent_id=ROOT_SECTION_ID,
+            kind=SectionKind.TOPIC,
+            header="Recommend a phased Frankfurt warehouse landing finance first.",
+            body=(
+                "Supports:\n"
+                "- Weekly CSV process is high-cost and high-risk for stale data.\n"
+                "- GDPR forces region-pinned storage anyway.\n"
+                "- Finance has the clearest single-source-of-truth pain.\n\n"
+                "Next actions:\n"
+                "- Send Stripe schema sample to data team\n"
+                "- Confirm whether a SOC2 audit is underway"
+            ),
+            ts=started + timedelta(minutes=6, seconds=30),
+        )
+    )
+
+    transitions = [
+        Transition(
+            from_section_id=ROOT_SECTION_ID,
+            to_section_id="rapport",
+            kind=TransitionKind.OPEN,
+            crossed_phase_boundary=True,
+            recap=None,
+            bridge=None,
+            preview="We'll cover rapport, define, prioritise, and wrap.",
+            ts=started,
+        ),
+        Transition(
+            from_section_id="rapport",
+            to_section_id="define",
+            kind=TransitionKind.SIBLING,
+            crossed_phase_boundary=True,
+            recap="Stakeholders mapped; decision flow clear.",
+            bridge=None,
+            preview=None,
+            ts=started + timedelta(minutes=1, seconds=45),
+        ),
+        Transition(
+            from_section_id="define",
+            to_section_id="pain_points",
+            kind=TransitionKind.DRILL_DOWN,
+            crossed_phase_boundary=False,
+            recap=None,
+            bridge=None,
+            preview=None,
             ts=started + timedelta(minutes=2),
         ),
-        NotebookEntry(
-            title="No single source of truth for revenue",
-            content=(
-                "Finance and product disagree on Q-end numbers because they "
-                "pull from different exports."
-            ),
-            objective_ids=["OBJ1", "OBJ4"],
-            ts=started + timedelta(minutes=4, seconds=20),
+        Transition(
+            from_section_id="pain_points",
+            to_section_id="pain_points/severity",
+            kind=TransitionKind.DRILL_DOWN,
+            crossed_phase_boundary=False,
+            recap=None,
+            bridge=None,
+            preview=None,
+            ts=started + timedelta(minutes=4, seconds=45),
         ),
-    ]
-    notebook["constraints"] = [
-        NotebookEntry(
-            title="GDPR for EU customer data",
-            content=(
-                "Customer PII in Salesforce must remain region-pinned. "
-                "Considering a Frankfurt region warehouse."
-            ),
-            objective_ids=["OBJ2"],
-            ts=started + timedelta(minutes=5, seconds=10),
-        ),
-    ]
-    notebook["must_haves"] = [
-        NotebookEntry(
-            title="Daily refresh of revenue domain",
-            content="Finance needs revenue numbers refreshed by 9 AM each weekday.",
-            objective_ids=[],
-            ts=started + timedelta(minutes=6),
+        Transition(
+            from_section_id="pain_points/severity",
+            to_section_id="pain_points",
+            kind=TransitionKind.ZOOM_OUT,
+            crossed_phase_boundary=False,
+            recap="Pain is weekly and costs ~2 hours of analyst time.",
+            bridge=None,
+            preview=None,
+            ts=started + timedelta(minutes=5, seconds=30),
         ),
     ]
 
     return MeetingState(
         run_id=RUN_ID,
+        briefing_path="briefing.md",
         target_minutes=30,
         started_at=started,
         briefing_markdown=(
@@ -127,23 +198,22 @@ def _build_state() -> MeetingState:
             "- Compliance (GDPR, SOC2, industry-specific)\n\n"
             "Aim for 30 minutes. End with a confirmation of the top three priorities."
         ),
-        objectives=objectives,
-        tracker=tracker,
         template=template,
-        notebook=notebook,
-        current_phase="define",
-        phase_history=[
-            PhaseTransition(
-                phase_id="rapport",
-                note="",
-                ts=started,
-            ),
-            PhaseTransition(
-                phase_id="define",
-                note="Stakeholder ready, moving to substance",
-                ts=started + timedelta(minutes=1, seconds=45),
-            ),
+        sections=sections,
+        current_section_id="pain_points/q3",
+        visited_section_ids=[
+            "rapport",
+            "stakeholders",
+            "define",
+            "pain_points",
+            "pain_points/q1",
+            "pain_points/severity",
+            "pain_points/severity/q1",
+            "pain_points/q3",
+            "constraints",
+            "constraints/q2",
         ],
+        transitions=transitions,
         followups=[
             Followup(
                 item="Send Stripe schema sample to data team",

@@ -18,17 +18,19 @@ The agent is a LiveKit worker. One process per active meeting. The agent process
 src/
   agent.py            entry point: parses dispatch metadata, starts AgentSession,
                       wires event handlers, registers shutdown callback.
-  harness.py          MeetingState (Pydantic), prompt builder, schedulers.
-  objectives.py       briefing → objectives (+ template, unless one is supplied) via OpenAI.
-  persistence.py      out/<run_id>/ file IO (briefing, transcript, final state).
-  tools.py            function_tools the agent calls: record_finding, enter_phase, etc.
-  templates/          reusable meeting shapes (requirements, research, eval, generic).
+  harness.py          MeetingState (Pydantic), Transition, prompt builder, schedulers.
+  briefing_plan.py    briefing → Template via front-matter or LLM template selection.
+  persistence.py      out/<run_id>/ file IO (tree.json, transitions.json, notebook.json, ...).
+  tools.py            function_tools the agent calls: record_finding, navigate,
+                      frame_meeting, deliver_pyramid_summary, note_followup, end_meeting.
+  templates/          Section + SectionKind schema and four shipped meeting trees
+                      (requirements, research, eval, generic).
 ```
 
 ## What it depends on
 
 - **LiveKit Cloud** — persistent WebSocket registers this worker as `briefing-agent`. Job offers arrive over that socket with JSON metadata `{briefing_description, run_id, target_minutes, custom_template?}`. The briefing is always an inline string (no file path); `custom_template`, when present, is used directly instead of template inference.
-- **OpenAI** — `gpt-realtime` for voice, `gpt-4o-mini-transcribe` for input transcription, `gpt-5-mini` for offline objective extraction at meeting start.
+- **OpenAI** — `gpt-realtime` for voice, `gpt-4o-mini-transcribe` for input transcription, `gpt-5-mini` for offline template selection at meeting start (only when no `custom_template` is supplied and no front-matter is set).
 - **Redis** — writes to `state:<run_id>` and `events:<run_id>` after every state mutation; adds run_id to `runs:active` on start, removes on shutdown.
 - **Volumes** — `./out:/app/out` — read-write, per-run artifacts written at shutdown.
 
@@ -65,7 +67,7 @@ After editing anything here:
 2. `docker compose up -d`
 3. `uv run python scripts/dispatch.py --briefing briefings/01_dwh_requirements.md --target-minutes 5`
 4. Join the meeting, speak for ~30 seconds, end it.
-5. Confirm `out/<run_id>/` is populated with `briefing.md`, `objectives.json`, `transcript.jsonl`, `notebook.json`, `meta.json`.
+5. Confirm `out/<run_id>/` is populated with `briefing.md`, `transcript.jsonl`, `tree.json`, `transitions.json`, `notebook.json`, `followups.json`, `meta.json`.
 6. Check `docker compose logs agent` for any unhandled exceptions.
 
 ## Scaling

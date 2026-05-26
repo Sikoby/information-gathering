@@ -1,11 +1,12 @@
 import { useMemo } from "react";
 import { Agenda } from "@/components/Agenda";
+import { Breadcrumb } from "@/components/Breadcrumb";
 import { Briefing } from "@/components/Briefing";
 import { Followups } from "@/components/Followups";
 import { Header } from "@/components/Header";
 import { Notebook } from "@/components/Notebook";
-import { Objectives } from "@/components/Objectives";
 import { Sidebar } from "@/components/Sidebar";
+import { TransitionLog } from "@/components/TransitionLog";
 import { Separator } from "@ig/ui";
 import { useSnapshot } from "@/hooks/useSnapshot";
 
@@ -46,11 +47,13 @@ export default function App() {
         <div className="grid gap-8 md:grid-cols-[12rem_1fr]">
           <Sidebar state={state} />
           <main className="min-w-0 space-y-10">
+            <Breadcrumb state={state} />
+            <Separator />
             <Agenda state={state} />
             <Separator />
             <Notebook state={state} />
             <Separator />
-            <Objectives state={state} />
+            <TransitionLog state={state} />
             <Separator />
             <Followups state={state} />
             <Separator />

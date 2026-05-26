@@ -1,12 +1,306 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Badge, Button, Input, Textarea } from "@ig/ui";
-import type { NotebookSection, Phase, Template } from "@/types";
+import {
+  CLOSING_SECTION_ID,
+  OTHER_QUESTION_ID,
+  OTHER_SECTION_ID,
+  ROOT_SECTION_ID,
+  childrenOf,
+  isScheduled,
+  scheduledNodes,
+} from "@/types";
+import type { Section, SectionKind, Template } from "@/types";
 import { slugify } from "@/lib/format";
 
-function replaceAt<T>(list: T[], idx: number, patch: Partial<T>): T[] {
-  return list.map((item, i) => (i === idx ? { ...item, ...patch } : item));
+const PROTECTED_IDS = new Set([
+  ROOT_SECTION_ID,
+  OTHER_SECTION_ID,
+  OTHER_QUESTION_ID,
+  CLOSING_SECTION_ID,
+]);
+
+const KIND_LABELS: Record<SectionKind, string> = {
+  meeting: "Meeting",
+  topic: "Topic",
+  question: "Question",
+  answer: "Answer (runtime)",
+};
+
+function allowedChildKinds(parentKind: SectionKind): SectionKind[] {
+  switch (parentKind) {
+    case "meeting":
+      return ["topic"];
+    case "topic":
+      return ["topic", "question"];
+    case "question":
+      return []; // ANSWERs are runtime only
+    case "answer":
+      return [];
+  }
 }
 
-/** Controlled editor for a meeting Template (sections + phases). */
+function fractionSum(sections: Section[]): number {
+  return scheduledNodes(sections).reduce(
+    (s, n) => s + (n.target_fraction ?? 0),
+    0,
+  );
+}
+
+function nextId(parent: Section, kind: SectionKind, sections: Section[]): string {
+  const prefix = kind === "topic" ? "t" : kind === "question" ? "q" : "x";
+  const siblings = childrenOf(sections, parent.id);
+  let n = siblings.length + 1;
+  let candidate = `${parent.id}/${prefix}${n}`;
+  while (sections.some((s) => s.id === candidate)) {
+    n += 1;
+    candidate = `${parent.id}/${prefix}${n}`;
+  }
+  return candidate;
+}
+
+function replaceSection(
+  sections: Section[],
+  id: string,
+  patch: Partial<Section>,
+): Section[] {
+  return sections.map((s) => (s.id === id ? { ...s, ...patch } : s));
+}
+
+function removeSubtree(sections: Section[], id: string): Section[] {
+  const toDrop = new Set<string>([id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const s of sections) {
+      if (s.parent_id && toDrop.has(s.parent_id) && !toDrop.has(s.id)) {
+        toDrop.add(s.id);
+        changed = true;
+      }
+    }
+  }
+  return sections.filter((s) => !toDrop.has(s.id));
+}
+
+function SectionRow({
+  section,
+  sections,
+  depth,
+  onChange,
+  disabled,
+}: {
+  section: Section;
+  sections: Section[];
+  depth: number;
+  onChange: (next: Section[]) => void;
+  disabled: boolean;
+}) {
+  const isProtected = PROTECTED_IDS.has(section.id);
+  const isTopLevel = section.parent_id === ROOT_SECTION_ID;
+  const isRoot = section.id === ROOT_SECTION_ID;
+  const allowedKinds = section.parent_id
+    ? allowedChildKinds(
+        sections.find((s) => s.id === section.parent_id)?.kind ?? "meeting",
+      )
+    : ["meeting" as SectionKind];
+  const childKinds = allowedChildKinds(section.kind);
+  const children = childrenOf(sections, section.id).filter(
+    (c) => c.kind !== "answer",
+  );
+  const hasChildren = children.length > 0;
+
+  // Root + scheduled top-level topics start expanded; deeper nodes collapsed
+  // by default so a big template opens to a quick scan, not a wall of text.
+  const [expanded, setExpanded] = useState<boolean>(
+    isRoot || (isTopLevel && isScheduled(section)) || !hasChildren,
+  );
+
+  const setField = (patch: Partial<Section>) =>
+    onChange(replaceSection(sections, section.id, patch));
+
+  const addChild = (kind: SectionKind) => {
+    const id = nextId(section, kind, sections);
+    const next: Section = {
+      id,
+      parent_id: section.id,
+      kind,
+      header: kind === "question" ? "New question?" : "New topic",
+      body: null,
+      target_fraction: null,
+      opening_signpost: null,
+      closing_signpost: null,
+      ts: null,
+    };
+    onChange([...sections, next]);
+    setExpanded(true);
+  };
+
+  const remove = () => {
+    if (isProtected) return;
+    onChange(removeSubtree(sections, section.id));
+  };
+
+  return (
+    <div className="rounded-md border bg-card p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {hasChildren ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              aria-label={expanded ? "Collapse" : "Expand"}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+            >
+              {expanded ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+            </button>
+          ) : (
+            <span aria-hidden className="h-5 w-5 shrink-0" />
+          )}
+          <Badge variant="outline" className="text-[10px] uppercase">
+            {KIND_LABELS[section.kind]}
+          </Badge>
+          <code className="font-mono text-[11px] text-muted-foreground truncate">
+            {section.id}
+          </code>
+          {isTopLevel && isScheduled(section) && (
+            <Badge variant="secondary" className="text-[10px]">
+              scheduled
+            </Badge>
+          )}
+          {isProtected && (
+            <Badge variant="outline" className="text-[10px]">
+              protected
+            </Badge>
+          )}
+          {hasChildren && (
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {children.length} child{children.length === 1 ? "" : "ren"}
+            </span>
+          )}
+        </div>
+        {!isProtected && !disabled && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={remove}
+            title="Remove this section and its children"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {section.kind !== "meeting" && !isProtected && allowedKinds.length > 1 && (
+          <div>
+            <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Kind
+            </label>
+            <div className="mt-1 flex gap-1">
+              {allowedKinds.map((k) => (
+                <Button
+                  key={k}
+                  type="button"
+                  size="sm"
+                  variant={k === section.kind ? "default" : "outline"}
+                  disabled={disabled}
+                  onClick={() => setField({ kind: k })}
+                >
+                  {KIND_LABELS[k]}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+        <Input
+          value={section.header}
+          disabled={disabled}
+          placeholder="Header"
+          onChange={(e) => setField({ header: e.target.value })}
+        />
+        <Textarea
+          rows={2}
+          value={section.body ?? ""}
+          disabled={disabled}
+          placeholder={
+            section.kind === "topic"
+              ? "What this section covers (optional)"
+              : section.kind === "question"
+                ? "Optional context for the question"
+                : "Body"
+          }
+          onChange={(e) =>
+            setField({ body: e.target.value ? e.target.value : null })
+          }
+        />
+        {isTopLevel && section.kind === "topic" && !isProtected && (
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-muted-foreground">
+              Target fraction (leave blank for un-scheduled)
+            </label>
+            <Input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              className="w-24"
+              value={
+                section.target_fraction == null ? "" : section.target_fraction
+              }
+              disabled={disabled}
+              onChange={(e) =>
+                setField({
+                  target_fraction:
+                    e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+            />
+          </div>
+        )}
+      </div>
+
+      {childKinds.length > 0 && !disabled && expanded && (
+        <div className="mt-3 ml-2.5 flex gap-1 border-l border-border pl-5">
+          {childKinds.map((k) => (
+            <Button
+              key={k}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => addChild(k)}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              add {k}
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {hasChildren && expanded && (
+        <div className="mt-3 ml-2.5 space-y-2 border-l border-border pl-5">
+          {children.map((c) => (
+            <SectionRow
+              key={c.id}
+              section={c}
+              sections={sections}
+              depth={depth + 1}
+              onChange={onChange}
+              disabled={disabled}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Controlled editor for a meeting Template (kinded Section tree). */
 export function TemplateEditor({
   template,
   onChange,
@@ -16,37 +310,11 @@ export function TemplateEditor({
   onChange: (t: Template) => void;
   disabled?: boolean;
 }) {
-  const setSections = (sections: NotebookSection[]) =>
+  const setSections = (sections: Section[]) =>
     onChange({ ...template, sections });
-  const setPhases = (phases: Phase[]) => onChange({ ...template, phases });
 
-  const phaseTotal = template.phases.reduce(
-    (sum, p) => sum + (p.target_fraction || 0),
-    0,
-  );
-
-  const addSection = () =>
-    setSections([
-      ...template.sections,
-      {
-        id: slugify(`section ${template.sections.length + 1}`),
-        label: "New section",
-        description: "",
-        repeated: true,
-      },
-    ]);
-
-  const addPhase = () =>
-    setPhases([
-      ...template.phases,
-      {
-        id: slugify(`phase ${template.phases.length + 1}`),
-        label: "New phase",
-        goal: "",
-        target_fraction: 0.1,
-        sections_in_focus: [],
-      },
-    ]);
+  const total = fractionSum(template.sections);
+  const root = template.sections.find((s) => s.id === ROOT_SECTION_ID);
 
   return (
     <div className="space-y-6">
@@ -59,7 +327,9 @@ export function TemplateEditor({
             className="mt-1"
             value={template.name}
             disabled={disabled}
-            onChange={(e) => onChange({ ...template, name: e.target.value })}
+            onChange={(e) =>
+              onChange({ ...template, name: slugify(e.target.value) })
+            }
           />
         </div>
         <div>
@@ -78,191 +348,30 @@ export function TemplateEditor({
       </div>
 
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
             Sections ({template.sections.length})
           </h3>
-          {!disabled && (
-            <Button type="button" variant="outline" size="sm" onClick={addSection}>
-              Add section
-            </Button>
+          <Badge
+            variant={Math.abs(total - 1) < 0.011 ? "success" : "warning"}
+          >
+            scheduled fractions {total.toFixed(2)}
+          </Badge>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Tree of sections. Top-level TOPICs with a target_fraction are "phases"
+          and must sum to ≈ 1.0. QUESTIONs accept ANSWERs at runtime.
+        </p>
+        <div className="mt-3 space-y-2">
+          {root && (
+            <SectionRow
+              section={root}
+              sections={template.sections}
+              depth={0}
+              onChange={setSections}
+              disabled={disabled}
+            />
           )}
-        </div>
-        <div className="mt-3 space-y-3">
-          {template.sections.map((s, idx) => (
-            <div key={idx} className="rounded-md border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <code className="text-xs text-muted-foreground">{s.id}</code>
-                {!disabled && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      setSections(template.sections.filter((_, i) => i !== idx))
-                    }
-                  >
-                    Remove
-                  </Button>
-                )}
-              </div>
-              <Input
-                className="mt-2"
-                value={s.label}
-                disabled={disabled}
-                placeholder="Label"
-                onChange={(e) =>
-                  setSections(
-                    replaceAt(template.sections, idx, { label: e.target.value }),
-                  )
-                }
-              />
-              <Textarea
-                className="mt-2"
-                rows={2}
-                value={s.description}
-                disabled={disabled}
-                placeholder="What belongs in this section"
-                onChange={(e) =>
-                  setSections(
-                    replaceAt(template.sections, idx, {
-                      description: e.target.value,
-                    }),
-                  )
-                }
-              />
-              <label className="mt-2 flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={s.repeated}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    setSections(
-                      replaceAt(template.sections, idx, {
-                        repeated: e.target.checked,
-                      }),
-                    )
-                  }
-                />
-                Repeated (many entries expected)
-              </label>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">
-            Phases ({template.phases.length})
-          </h3>
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={Math.abs(phaseTotal - 1) < 0.011 ? "success" : "warning"}
-            >
-              fractions {phaseTotal.toFixed(2)}
-            </Badge>
-            {!disabled && (
-              <Button type="button" variant="outline" size="sm" onClick={addPhase}>
-                Add phase
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="mt-3 space-y-3">
-          {template.phases.map((p, idx) => (
-            <div key={idx} className="rounded-md border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <code className="text-xs text-muted-foreground">{p.id}</code>
-                {!disabled && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      setPhases(template.phases.filter((_, i) => i !== idx))
-                    }
-                  >
-                    Remove
-                  </Button>
-                )}
-              </div>
-              <div className="mt-2 flex gap-2">
-                <Input
-                  className="flex-1"
-                  value={p.label}
-                  disabled={disabled}
-                  placeholder="Label"
-                  onChange={(e) =>
-                    setPhases(
-                      replaceAt(template.phases, idx, { label: e.target.value }),
-                    )
-                  }
-                />
-                <Input
-                  className="w-28"
-                  type="number"
-                  step="0.05"
-                  min="0"
-                  max="1"
-                  value={p.target_fraction}
-                  disabled={disabled}
-                  onChange={(e) =>
-                    setPhases(
-                      replaceAt(template.phases, idx, {
-                        target_fraction: Number(e.target.value),
-                      }),
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                className="mt-2"
-                rows={2}
-                value={p.goal}
-                disabled={disabled}
-                placeholder="Phase goal"
-                onChange={(e) =>
-                  setPhases(
-                    replaceAt(template.phases, idx, { goal: e.target.value }),
-                  )
-                }
-              />
-              <div className="mt-2">
-                <span className="text-xs text-muted-foreground">
-                  Sections in focus
-                </span>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  {template.sections.map((s) => {
-                    const on = p.sections_in_focus.includes(s.id);
-                    return (
-                      <label
-                        key={s.id}
-                        className="flex items-center gap-1 text-xs"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          disabled={disabled}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...p.sections_in_focus, s.id]
-                              : p.sections_in_focus.filter((x) => x !== s.id);
-                            setPhases(
-                              replaceAt(template.phases, idx, {
-                                sections_in_focus: next,
-                              }),
-                            );
-                          }}
-                        />
-                        {s.id}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

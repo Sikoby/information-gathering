@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { cn } from "@ig/ui";
+import { childrenOf, scheduledNodes } from "@/types";
 import type { MeetingState } from "@/types";
 
 type NavItem = {
@@ -9,17 +10,25 @@ type NavItem = {
 };
 
 function buildItems(state: MeetingState): NavItem[] {
+  const phases = scheduledNodes(state.sections);
   return [
-    { id: "agenda", label: "Agenda" },
+    { id: "breadcrumb", label: "Position" },
+    {
+      id: "agenda",
+      label: "Agenda",
+    },
     {
       id: "notebook",
       label: "Notebook",
-      children: state.template.sections.map((s) => ({
-        id: `section-${s.id}`,
-        label: s.label,
+      children: phases.map((p) => ({
+        id: `section-${p.id}`,
+        label: p.header,
+        children: childrenOf(state.sections, p.id)
+          .filter((s) => s.kind === "topic")
+          .map((t) => ({ id: `section-${t.id}`, label: t.header })),
       })),
     },
-    { id: "objectives", label: "Objectives" },
+    { id: "transitions", label: "Transitions" },
     { id: "followups", label: "Follow-ups" },
     { id: "briefing", label: "Briefing" },
   ];
@@ -59,7 +68,7 @@ export function Sidebar({ state, className }: { state: MeetingState; className?:
     );
     for (const node of nodes) observer.observe(node);
     return () => observer.disconnect();
-  }, [state.template.sections.length]);
+  }, [state.sections.length]);
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     e.preventDefault();
@@ -79,8 +88,10 @@ export function Sidebar({ state, className }: { state: MeetingState; className?:
           href={`#${item.id}`}
           onClick={(e) => handleClick(e, item.id)}
           className={cn(
-            "block rounded px-2 py-1 text-sm transition-colors",
-            depth === 0 ? "font-medium" : "pl-4 text-xs",
+            "block rounded px-2 py-1 transition-colors",
+            depth === 0 && "text-sm font-medium",
+            depth === 1 && "pl-4 text-xs",
+            depth >= 2 && "pl-6 text-[11px]",
             isActive
               ? "bg-secondary text-foreground"
               : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground",

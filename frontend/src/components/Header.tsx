@@ -10,6 +10,7 @@ import {
 } from "@ig/ui";
 import { extractMeetingTitle } from "@/lib/briefing";
 import { elapsedFraction, formatElapsed } from "@/lib/time";
+import { enclosingPhase } from "@/types";
 import type { EndReason, MeetingState } from "@/types";
 
 function endVariant(reason: EndReason): "destructive" | "success" | "default" {
@@ -42,7 +43,7 @@ export function Header({ state, className }: { state: MeetingState; className?: 
   }, [state.end_reason]);
 
   const title = extractMeetingTitle(state.briefing_markdown, state.template.name);
-  const currentPhase = state.template.phases.find((p) => p.id === state.current_phase);
+  const currentPhase = enclosingPhase(state.sections, state.current_section_id);
   const fraction = elapsedFraction(state.started_at, state.target_minutes, now);
 
   if (state.end_reason) {
@@ -105,9 +106,17 @@ export function Header({ state, className }: { state: MeetingState; className?: 
         </div>
 
         <div className="flex items-center gap-3">
-          {currentPhase && (
-            <Badge variant="default" className="uppercase tracking-wide" title={currentPhase.goal}>
-              {currentPhase.label}
+          {currentPhase ? (
+            <Badge
+              variant="default"
+              className="uppercase tracking-wide"
+              title={currentPhase.body ?? undefined}
+            >
+              {currentPhase.header}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="uppercase tracking-wide">
+              (no phase)
             </Badge>
           )}
           <div className="flex-1">

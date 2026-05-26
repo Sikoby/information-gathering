@@ -1,18 +1,22 @@
 import { Check, Circle } from "lucide-react";
+import { Badge, cn } from "@ig/ui";
 import {
-  Badge,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  cn,
-} from "@ig/ui";
-import { relativeTime } from "@/lib/time";
-import type { MeetingState, Phase } from "@/types";
+  childrenOf,
+  childrenOfKind,
+  descendantsOf,
+  enclosingPhase,
+  scheduledNodes,
+} from "@/types";
+import type { MeetingState, Section } from "@/types";
 
 type PhaseStatus = "visited" | "current" | "upcoming";
 
-function phaseStatus(phase: Phase, state: MeetingState, visited: Set<string>): PhaseStatus {
-  if (phase.id === state.current_phase) return "current";
+function phaseStatus(
+  phase: Section,
+  visited: Set<string>,
+  current: Section | null,
+): PhaseStatus {
+  if (current && phase.id === current.id) return "current";
   if (visited.has(phase.id)) return "visited";
   return "upcoming";
 }
@@ -37,28 +41,54 @@ function Marker({ status }: { status: PhaseStatus }) {
   );
 }
 
-export function Agenda({ state, className }: { state: MeetingState; className?: string }) {
-  const visited = new Set(state.phase_history.map((t) => t.phase_id));
-  visited.add(state.current_phase);
-  const sectionLabel = (id: string) =>
-    state.template.sections.find((s) => s.id === id)?.label ?? id;
+function countAnsweredQuestions(state: MeetingState, phaseId: string) {
+  const desc = descendantsOf(state.sections, phaseId);
+  const questions = desc.filter((s) => s.kind === "question");
+  const answered = questions.filter(
+    (q) => childrenOfKind(state.sections, q.id, "answer").length > 0,
+  );
+  return { answered: answered.length, total: questions.length };
+}
+
+export function Agenda({
+  state,
+  className,
+}: {
+  state: MeetingState;
+  className?: string;
+}) {
+  const phases = scheduledNodes(state.sections);
+  const currentPhase = enclosingPhase(state.sections, state.current_section_id);
+  const visited = new Set<string>();
+  for (const t of state.transitions) {
+    const p = enclosingPhase(state.sections, t.to_section_id);
+    if (p) visited.add(p.id);
+  }
+  if (currentPhase) visited.add(currentPhase.id);
 
   return (
     <section id="agenda" className={cn("scroll-mt-24", className)}>
       <h2 className="text-lg font-semibold tracking-tight">Agenda</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        {state.template.phases.length} phases · current is{" "}
-        <span className="font-medium text-foreground">
-          {state.template.phases.find((p) => p.id === state.current_phase)?.label ??
-            state.current_phase}
-        </span>
+        {phases.length} phase{phases.length === 1 ? "" : "s"}
+        {currentPhase && (
+          <>
+            {" "}· current is{" "}
+            <span className="font-medium text-foreground">{currentPhase.header}</span>
+          </>
+        )}
       </p>
 
       <ol className="relative mt-4 space-y-4 border-l border-border pl-0">
-        {state.template.phases.map((phase, idx) => {
-          const status = phaseStatus(phase, state, visited);
+        {phases.map((phase, idx) => {
+          const status = phaseStatus(phase, visited, currentPhase);
           const isCurrent = status === "current";
-          const isLast = idx === state.template.phases.length - 1;
+          const isLast = idx === phases.length - 1;
+          const { answered, total } = countAnsweredQuestions(state, phase.id);
+          const innerTopics = childrenOf(state.sections, phase.id).filter(
+            (s) => s.kind === "topic",
+          );
+
           return (
             <li key={phase.id} className="relative pl-10">
               <div className="absolute left-0 top-0 -translate-x-1/2">
@@ -83,54 +113,51 @@ export function Agenda({ state, className }: { state: MeetingState; className?: 
                       status === "upcoming" && "text-muted-foreground",
                     )}
                   >
-                    {phase.label}
+                    {phase.header}
                   </h3>
                   <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {Math.round(phase.target_fraction * 100)}% of meeting
+                    {phase.target_fraction != null
+                      ? `${Math.round(phase.target_fraction * 100)}% of meeting`
+                      : ""}
                   </span>
                 </div>
-                <p
-                  className={cn(
-                    "mt-1 text-sm",
-                    status === "upcoming"
-                      ? "text-muted-foreground/80"
-                      : "text-foreground/90",
-                  )}
-                >
-                  {phase.goal}
-                </p>
-                {phase.sections_in_focus.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {phase.sections_in_focus.map((sid) => (
-                      <Badge key={sid} variant="outline" className="text-[10px]">
-                        {sectionLabel(sid)}
-                      </Badge>
-                    ))}
-                  </div>
+                {phase.body && (
+                  <p
+                    className={cn(
+                      "mt-1 text-sm",
+                      status === "upcoming"
+                        ? "text-muted-foreground/80"
+                        : "text-foreground/90",
+                    )}
+                  >
+                    {phase.body}
+                  </p>
                 )}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={
+                      total === 0
+                        ? "outline"
+                        : answered === total
+                          ? "success"
+                          : "secondary"
+                    }
+                    className="text-[10px]"
+                  >
+                    {answered}/{total} questions answered
+                  </Badge>
+                  {innerTopics.length > 0 && (
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {innerTopics.length} topic
+                      {innerTopics.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
               </div>
             </li>
           );
         })}
       </ol>
-
-      {state.phase_history.length > 0 && (
-        <Collapsible className="mt-4">
-          <CollapsibleTrigger className="text-xs text-muted-foreground hover:text-foreground">
-            {state.phase_history.length} phase transition
-            {state.phase_history.length === 1 ? "" : "s"} — show
-          </CollapsibleTrigger>
-          <CollapsibleContent className="mt-2 space-y-1 text-xs">
-            {state.phase_history.map((t, idx) => (
-              <div key={idx} className="flex gap-2">
-                <span className="font-mono text-muted-foreground">{relativeTime(t.ts)}</span>
-                <span className="font-medium">→ {t.phase_id}</span>
-                {t.note && <span className="text-muted-foreground">— {t.note}</span>}
-              </div>
-            ))}
-          </CollapsibleContent>
-        </Collapsible>
-      )}
     </section>
   );
 }

@@ -12,7 +12,7 @@ Storage layout:
 The stored JSON keeps `template` as an embedded JSON *string* (not a nested
 object) so the Lua merge — which decodes and re-encodes the whole record —
 never round-trips template's nested arrays through cjson (which would corrupt
-empty arrays like an empty `sections_in_focus` into `{}`).
+any empty arrays in the nested Section tree into `{}`).
 """
 
 from __future__ import annotations

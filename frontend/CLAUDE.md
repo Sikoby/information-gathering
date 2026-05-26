@@ -17,11 +17,12 @@ frontend/
   src/
     App.tsx                 layout + Sidebar + main column
     components/
-      Header.tsx            title, current phase, elapsed, progress bar
-      Agenda.tsx            vertical timeline of template.phases
+      Header.tsx            title, current-phase pill (derived), elapsed, progress bar
+      Breadcrumb.tsx        root → current-section path, kind-glyph chips
+      Agenda.tsx            scheduled top-level TOPICs as a vertical timeline
       Sidebar.tsx           sticky scroll-nav (IntersectionObserver)
-      Notebook.tsx          template.sections + entries
-      Objectives.tsx        objectives + tracker
+      Notebook.tsx          recursive kind-aware tree renderer
+      TransitionLog.tsx     chronological typed navigation log
       Followups.tsx         actions / open questions
       Briefing.tsx          raw markdown (collapsible)
     lib/
@@ -29,7 +30,8 @@ frontend/
       time.ts               formatElapsed, elapsedFraction, relativeTime
     hooks/
       useSnapshot.ts        fetch /state then subscribe to /events SSE
-    types.ts                MeetingState and child types — keep in sync with src/harness.py
+    types.ts                MeetingState + Transition — keep in sync with src/harness.py.
+                            Section/SectionKind/Template + tree helpers come from @ig/ui.
   DESIGN.md                 conventions, typography, state cues
   CLAUDE.md                 this file
 ```
@@ -52,16 +54,17 @@ uv run python scripts/preview_dev_server.py # serves /dev/ on :8767
 ## First things to read when adding a UI feature
 
 1. [DESIGN.md](DESIGN.md) — layout, section convention (no `Card` around sections, `Separator` between them), typography, state cues.
-2. [src/types.ts](src/types.ts) — the snapshot shape. The backend source of truth is `../src/harness.py` (MeetingState) and `../src/templates/schema.py` (Template/Phase/NotebookSection).
+2. [src/types.ts](src/types.ts) — the snapshot shape. The backend source of truth is `../src/harness.py` (MeetingState + Transition) and `../src/templates/schema.py` (Section / SectionKind / Template + tree helpers).
 3. The existing component closest to what you're adding — patterns are intentionally consistent.
 
 ## Conventions worth not violating
 
 - Sections are `<section id="...">` with `scroll-mt-24` and an `<h2>` heading. They are NOT wrapped in `Card`. Use `<Separator />` between sections.
-- Item rows (single notebook entry, single objective) use `rounded-md border bg-card p-3`. That is where `Card`-like styling lives now.
-- Anchor IDs (`agenda`, `notebook`, `section-<id>`, `objectives`, `followups`, `briefing`) are read by `Sidebar.tsx`. If you rename one, update the sidebar.
+- Item rows (single answer, single question, single transition) use `rounded-md border bg-card p-3`. That is where `Card`-like styling lives now.
+- Anchor IDs (`breadcrumb`, `agenda`, `notebook`, `section-<id>` per tree node, `transitions`, `followups`, `briefing`) are read by `Sidebar.tsx`. If you rename one, update the sidebar.
 - Title comes from `state.briefing_markdown` via `extractMeetingTitle`. Don't add a `title` field to MeetingState unless you also update the Python side.
-- Don't reintroduce `PhaseBar` — it was replaced by `Agenda`. The phase-history collapsible lives in `Agenda.tsx`.
+- The active phase is **derived** from `state.current_section_id` via `enclosingPhase(...)`. There is no `current_phase` field. Do not reintroduce one.
+- Tree-walk helpers (`sectionById`, `childrenOf`, `pathTo`, `scheduledNodes`, …) live in `@ig/ui` and are re-exported from `src/types.ts`. Use them — do not write ad-hoc walks.
 
 ## Data flow
 

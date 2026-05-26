@@ -142,12 +142,25 @@ class OrbAvatarSession(AvatarSession):
     """Publishes the agent's audio + a Python-rendered orb video into the room."""
 
     def __init__(self) -> None:
+        super().__init__()
         self._runner: AvatarRunner | None = None
         self._video_gen: _OrbVideoGenerator | None = None
         self._audio_io: QueueAudioOutput | None = None
         self._agent_session: AgentSession | None = None
+        self._room: rtc.Room | None = None
+
+    @property
+    def avatar_identity(self) -> str:
+        if self._room is not None and self._room.local_participant is not None:
+            return self._room.local_participant.identity
+        return "orb-avatar"
+
+    @property
+    def provider(self) -> str:
+        return "orb-local"
 
     async def start(self, agent_session: AgentSession, room: rtc.Room) -> None:
+        self._room = room  # set before super().start so its wait task can read identity
         await super().start(agent_session, room)
         self._agent_session = agent_session
 
