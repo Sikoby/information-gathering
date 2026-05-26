@@ -268,7 +268,7 @@ function PlannedEditor({
           onChange={(e) => setDraft({ ...draft, prompt: e.target.value })}
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          The prompt is the briefing the agent extracts objectives from. Save
+          The prompt is the briefing the agent runs the meeting against. Save
           edits, or Regenerate to rebuild the template from it.
         </p>
       </section>

@@ -41,7 +41,7 @@ Open the **meeting console** at [http://localhost:8769](http://localhost:8769). 
 2. The console kicks off the template-generator (impl+critique loop, 1–4 minutes). The meeting sits in **Planned** while the template generates. You can edit the title, prompt, target length, or the generated template, and re-generate if you want a different shape.
 3. When the template is **ready**, click **Start meeting**. The console calls dispatch, which creates the LiveKit room and dispatches the agent. The meeting moves to **Running** and the console shows the join URL plus the live-viewer URL.
 4. Open the LiveKit join URL in a browser, allow the mic, and join. The agent speaks first within a second or two.
-5. As soon as you join the room, the agent drops the live-viewer URL into the room's chat panel — click it to watch the cockpit: meeting title, agenda timeline, notebook entries, objectives tracker, and follow-ups updating as you talk.
+5. As soon as you join the room, the agent drops the live-viewer URL into the room's chat panel — click it to watch the cockpit: meeting title, breadcrumb of where the conversation is, agenda timeline, the live notebook tree (questions and the answers the agent has captured), the typed-transition log, and follow-ups — all updating as you talk.
 6. When the agent calls `end_meeting` (or you leave), the worker flushes the run to `out/<meeting_id>/` and the console's reconcile loop moves the meeting to **Done**.
 
 Ports: console SPA `8769`, console API `8770`, live viewer `8765`, dispatch `8766`, template-generator `8768`.

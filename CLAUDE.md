@@ -4,7 +4,7 @@
 
 ## What this is
 
-A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, notebook, objectives tracker, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a meeting from a prompt — generate and edit its template, start it, and track its lifecycle.
+A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, a kinded `Section` tree with the agent's findings, a typed transition log, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a meeting from a prompt — generate and edit its template, start it, and track its lifecycle.
 
 ## Services
 
