@@ -124,6 +124,8 @@ docker compose up -d redis
 uv run python scripts/preview_dev_server.py    # http://localhost:8767/dev/
 ```
 
+For a production deploy (single Hetzner VM, Cloudflare Tunnel for ingress + TLS, Cloudflare Access on the console), see [README.md](README.md) "Production deploy". The overlay [docker-compose.prod.yml](docker-compose.prod.yml) adds a `cloudflared` service and closes the host port mappings; the base seven-service architecture is unchanged.
+
 ## What's intentionally out of scope here
 
 - Authentication. The console can create and start meetings (spending OpenAI + LiveKit budget) with no auth — same posture as the other public endpoints.

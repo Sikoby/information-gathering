@@ -1,0 +1,37 @@
+# Production overlay: closes all host port mappings, adds cloudflared tunnel.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Or set COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml in .env and
+# drop the -f flags. See README.md "Production deploy" for the full setup.
+
+services:
+  agent:
+    environment:
+      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set (e.g. https://meeting.example.com)}
+
+  webapp:
+    ports: !reset []
+
+  dispatch:
+    ports: !reset []
+    environment:
+      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
+
+  template-generator:
+    ports: !reset []
+
+  console:
+    ports: !reset []
+    environment:
+      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
+
+  console-frontend:
+    ports: !reset []
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set in .env (from Cloudflare Zero Trust > Networks > Tunnels)}
+    depends_on:
+      - console-frontend
+      - webapp
+    networks: [public]

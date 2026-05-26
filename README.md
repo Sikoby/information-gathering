@@ -208,6 +208,148 @@ package.json              npm workspace root (shared, frontend, console-frontend
 CLAUDE.md                 system overview; each container directory has its own CLAUDE.md
 ```
 
+## Production deploy (Hetzner + Cloudflare Tunnel)
+
+Single-VM deploy with Cloudflare in front for TLS and Access auth on the console. Outbound-only — no inbound ports on the VM beyond SSH. Cost ~€5/mo.
+
+```
+browser ─ TLS ─▶ Cloudflare edge ──(Access policy on console.*)──▶ Cloudflare Tunnel
+                                                                       │ (outbound)
+                                                                       ▼
+                                                            cloudflared (on VM)
+                                                              │ docker network
+                                                              ├─▶ console-frontend → console
+                                                              └─▶ webapp
+```
+
+Auth sits on `console.example.com` only. Anyone with a link can open `meeting.example.com` to watch a meeting they're a participant in — same posture as a Google Docs share link. The cost-risk surface (creating meetings, spending OpenAI + LiveKit budget) is on the console, and that's walled off.
+
+The overlay [docker-compose.prod.yml](docker-compose.prod.yml) closes all host port mappings (only SSH stays open) and adds a `cloudflared` service that reaches `console-frontend:80` and `webapp:8765` over the internal docker network.
+
+### What you need
+
+- A domain you control
+- A Cloudflare account (free plan is enough)
+- A Hetzner Cloud account
+- The LiveKit + OpenAI keys from `.env.example`
+
+### Step 1 — Move your domain to Cloudflare
+
+Cloudflare dashboard → **Add a site** → enter your domain → **Free** plan. Cloudflare gives you two NS records — update them at your current registrar. Wait for the activation email (usually under an hour, occasionally up to 24h). You can do Steps 2 and 3 in parallel.
+
+### Step 2 — Provision the VM
+
+Hetzner Cloud Console → **New server**:
+
+- Location: `nbg1` or `fsn1` (EU latency to LiveKit Cloud)
+- Image: Ubuntu 24.04
+- Type: **CX22** (€4.51/mo, 2 vCPU, 4 GB RAM, 40 GB SSD)
+- SSH key: paste your public key
+- Name: `ig-prod-1`
+
+### Step 3 — Bootstrap the VM
+
+SSH in as `root` and run the bootstrap script (it creates a `deploy` user, hardens SSH, opens only port 22, installs Docker, and clones the repo to `/opt/ig/app`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/<your-fork>/main/scripts/bootstrap_vm.sh \
+  | bash -s -- https://github.com/<your-fork>.git
+```
+
+Or copy [scripts/bootstrap_vm.sh](scripts/bootstrap_vm.sh) over with `scp` and run it.
+
+Reconnect as `deploy@<vm-ip>`, then:
+
+```bash
+cd /opt/ig/app
+cp .env.example .env
+```
+
+Edit `.env`. Set the existing keys (`LIVEKIT_*`, `OPENAI_API_KEY`) and add three production-only ones:
+
+```
+WEBAPP_PUBLIC_URL=https://meeting.example.com
+TUNNEL_TOKEN=              # filled in Step 4
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+```
+
+`COMPOSE_FILE` lets you drop the `-f ... -f ...` flags from every `docker compose` command on this VM.
+
+### Step 4 — Create the Cloudflare Tunnel
+
+Cloudflare Zero Trust dashboard ([one.dash.cloudflare.com](https://one.dash.cloudflare.com)) → **Networks → Tunnels → Create a tunnel** → choose **Cloudflared** → name it `ig-prod`.
+
+Cloudflare shows an install command containing `--token <long-string>`. Copy **just the token** into `.env` on the VM as `TUNNEL_TOKEN=...`.
+
+Click **Next → Public Hostnames** and add two:
+
+| Subdomain | Domain | Service | URL |
+| --- | --- | --- | --- |
+| `console` | `example.com` | HTTP | `console-frontend:80` |
+| `meeting` | `example.com` | HTTP | `webapp:8765` |
+
+Save. DNS records are created automatically.
+
+### Step 5 — Cloudflare Access on the console
+
+Zero Trust → **Access → Applications → Add an application → Self-hosted**:
+
+- Name: `IG Console`
+- Application domain: `console.example.com`
+- Identity provider: **One-time PIN** (email magic link, zero setup) — or wire up Google/GitHub OAuth.
+- Save.
+
+Add a policy:
+
+- Name: `Operators`
+- Action: **Allow**
+- Include: `Emails` → list every email that can create meetings.
+- Save.
+
+Do **not** add an Access application for `meeting.example.com` — meeting participants click the link from room chat and won't be in the policy.
+
+### Step 6 — Bring up the stack
+
+On the VM:
+
+```bash
+cd /opt/ig/app
+docker compose up -d --build
+docker compose logs -f cloudflared
+```
+
+Wait until cloudflared logs `Connection registered` for all four edge connections, then Ctrl-C.
+
+### Step 7 — Verify
+
+1. Open `https://console.example.com` → expect the Cloudflare Access PIN screen → sign in with an allow-listed email → the meeting console loads.
+2. Create a test meeting end-to-end. Confirm:
+   - The room-chat link the agent posts is `https://meeting.example.com/<id>/`.
+   - Opening that link streams the live viewer (notebook, agenda, objectives update as you talk).
+
+### Updating
+
+```bash
+cd /opt/ig/app
+git pull
+docker compose up -d --build
+```
+
+### Backups
+
+The meeting registry lives in the Redis AOF volume; per-run artifacts live in `out/` and `templates_generated/`. Nightly tar to a Hetzner Storage Box or external bucket. Find the Redis volume name with `docker volume ls`:
+
+```bash
+docker run --rm \
+  -v app_redis-data:/data \
+  -v /home/deploy/backup:/backup \
+  alpine tar -czf /backup/redis-$(date +%F).tar.gz /data
+```
+
+### Budget cap reminder
+
+Cloudflare Access protects the meeting console, but a compromised operator account can still burn budget. Set hard spend caps at OpenAI and LiveKit Cloud before going live.
+
 ## Notes
 
 - The Silero VAD model is downloaded on first session inside the agent container. To pre-download: `docker compose run --rm agent python -m src.agent download-files`.
