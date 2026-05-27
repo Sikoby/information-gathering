@@ -221,7 +221,7 @@ function GeneratingView({ since }: { since: string }) {
         critique it, revise. This usually takes 1-4 minutes; the page updates
         itself the moment it finishes.
       </p>
-      <p className="font-mono text-sm tabular-nums text-muted-foreground">
+      <p className="text-sm tabular-nums text-muted-foreground">
         elapsed {mm}:{ss}
       </p>
     </div>
@@ -284,9 +284,7 @@ function PlannedEditor({
       )}
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Prompt
-        </h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">Prompt</h2>
         <Textarea
           className="mt-2"
           rows={8}
@@ -301,9 +299,7 @@ function PlannedEditor({
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Template
-        </h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">Template</h2>
         <div className="mt-3">
           {draft.template && (
             <TemplateEditor
@@ -407,9 +403,7 @@ function RunningOrDoneView({
       </dl>
 
       <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Prompt
-        </h2>
+        <h2 className="text-sm font-semibold text-muted-foreground">Prompt</h2>
         <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
           {meeting.prompt}
         </p>
@@ -422,7 +416,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border p-2">
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="truncate font-mono text-xs" title={value}>
+      <dd className="truncate text-xs" title={value}>
         {value}
       </dd>
     </div>

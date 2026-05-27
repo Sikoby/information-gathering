@@ -142,48 +142,31 @@ function SectionRow({
   };
 
   return (
-    <div className="rounded-md border bg-card p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {hasChildren ? (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              aria-expanded={expanded}
-              aria-label={expanded ? "Collapse" : "Expand"}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
-            >
-              {expanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </button>
+    <div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Collapse" : "Expand"}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
+        >
+          {expanded ? (
+            <ChevronDown className="h-3.5 w-3.5" />
           ) : (
-            <span aria-hidden className="h-5 w-5 shrink-0" />
+            <ChevronRight className="h-3.5 w-3.5" />
           )}
-          <Badge variant="outline" className="text-[10px] uppercase">
-            {KIND_LABELS[section.kind]}
-          </Badge>
-          <code className="font-mono text-[11px] text-muted-foreground truncate">
-            {section.id}
-          </code>
-          {isTopLevel && isScheduled(section) && (
-            <Badge variant="secondary" className="text-[10px]">
-              scheduled
-            </Badge>
-          )}
-          {isProtected && (
-            <Badge variant="outline" className="text-[10px]">
-              protected
-            </Badge>
-          )}
-          {hasChildren && (
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {children.length} child{children.length === 1 ? "" : "ren"}
-            </span>
-          )}
-        </div>
+        </button>
+        <Input
+          value={section.header}
+          disabled={disabled}
+          placeholder="Header"
+          onChange={(e) => setField({ header: e.target.value })}
+          className="h-7 flex-1 border-0 px-1 text-sm font-medium shadow-none focus-visible:bg-secondary/40"
+        />
+        {isTopLevel && isScheduled(section) && (
+          <span className="text-xs text-muted-foreground">scheduled</span>
+        )}
         {!isProtected && !disabled && (
           <Button
             type="button"
@@ -197,121 +180,115 @@ function SectionRow({
         )}
       </div>
 
-      <div className="mt-2 space-y-2">
-        {section.kind !== "meeting" && !isProtected && allowedKinds.length > 1 && (
-          <div>
-            <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Kind
-            </label>
-            <div className="mt-1 flex gap-1">
-              {allowedKinds.map((k) => (
-                <Button
-                  key={k}
-                  type="button"
-                  size="sm"
-                  variant={k === section.kind ? "default" : "outline"}
-                  disabled={disabled}
-                  onClick={() => setField({ kind: k })}
-                >
-                  {KIND_LABELS[k]}
-                </Button>
-              ))}
+      {expanded && (
+        <div className="ml-7 mt-2 space-y-2">
+          {section.kind !== "meeting" && !isProtected && allowedKinds.length > 1 && (
+            <div>
+              <label className="text-xs text-muted-foreground">Kind</label>
+              <div className="mt-1 flex gap-1">
+                {allowedKinds.map((k) => (
+                  <Button
+                    key={k}
+                    type="button"
+                    size="sm"
+                    variant={k === section.kind ? "default" : "outline"}
+                    disabled={disabled}
+                    onClick={() => setField({ kind: k })}
+                  >
+                    {KIND_LABELS[k]}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        <Input
-          value={section.header}
-          disabled={disabled}
-          placeholder="Header"
-          onChange={(e) => setField({ header: e.target.value })}
-        />
-        <Textarea
-          rows={2}
-          value={section.body ?? ""}
-          disabled={disabled}
-          placeholder={
-            section.kind === "topic"
-              ? "What this section covers (optional)"
-              : section.kind === "question"
-                ? "Optional context for the question"
-                : "Body"
-          }
-          onChange={(e) =>
-            setField({ body: e.target.value ? e.target.value : null })
-          }
-        />
-        <div>
-          <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Speaker notes · hidden from participants
-          </label>
+          )}
           <Textarea
-            className="mt-1"
             rows={2}
-            value={section.private_notes ?? ""}
+            value={section.body ?? ""}
             disabled={disabled}
-            placeholder="Speaker notes for the agent — hidden from participants. Tone, things to say or avoid, framing cues."
+            placeholder={
+              section.kind === "topic"
+                ? "What this section covers (optional)"
+                : section.kind === "question"
+                  ? "Optional context for the question"
+                  : "Body"
+            }
             onChange={(e) =>
-              setField({
-                private_notes: e.target.value ? e.target.value : null,
-              })
+              setField({ body: e.target.value ? e.target.value : null })
             }
           />
-        </div>
-        {isTopLevel && section.kind === "topic" && !isProtected && (
-          <div className="flex items-center gap-2">
+          <div>
             <label className="text-xs text-muted-foreground">
-              Target fraction (leave blank for un-scheduled)
+              Speaker notes
             </label>
-            <Input
-              type="number"
-              step="0.05"
-              min="0"
-              max="1"
-              className="w-24"
-              value={
-                section.target_fraction == null ? "" : section.target_fraction
-              }
+            <Textarea
+              className="mt-1"
+              rows={2}
+              value={section.private_notes ?? ""}
               disabled={disabled}
+              placeholder="Speaker notes for the agent — hidden from participants. Tone, things to say or avoid, framing cues."
               onChange={(e) =>
                 setField({
-                  target_fraction:
-                    e.target.value === "" ? null : Number(e.target.value),
+                  private_notes: e.target.value ? e.target.value : null,
                 })
               }
             />
           </div>
-        )}
-      </div>
+          {isTopLevel && section.kind === "topic" && !isProtected && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground">
+                Target fraction (leave blank for un-scheduled)
+              </label>
+              <Input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                className="w-24"
+                value={
+                  section.target_fraction == null ? "" : section.target_fraction
+                }
+                disabled={disabled}
+                onChange={(e) =>
+                  setField({
+                    target_fraction:
+                      e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+              />
+            </div>
+          )}
 
-      {childKinds.length > 0 && !disabled && expanded && (
-        <div className="mt-3 ml-2.5 flex gap-1 border-l border-border pl-5">
-          {childKinds.map((k) => (
-            <Button
-              key={k}
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => addChild(k)}
-            >
-              <Plus className="mr-1 h-3 w-3" />
-              add {k}
-            </Button>
-          ))}
-        </div>
-      )}
+          {childKinds.length > 0 && !disabled && (
+            <div className="flex gap-1">
+              {childKinds.map((k) => (
+                <Button
+                  key={k}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addChild(k)}
+                >
+                  <Plus className="mr-1 h-3 w-3" />
+                  add {k}
+                </Button>
+              ))}
+            </div>
+          )}
 
-      {hasChildren && expanded && (
-        <div className="mt-3 ml-2.5 space-y-2 border-l border-border pl-5">
-          {children.map((c) => (
-            <SectionRow
-              key={c.id}
-              section={c}
-              sections={sections}
-              depth={depth + 1}
-              onChange={onChange}
-              disabled={disabled}
-            />
-          ))}
+          {hasChildren && (
+            <div className="space-y-2 border-l border-border pl-4">
+              {children.map((c) => (
+                <SectionRow
+                  key={c.id}
+                  section={c}
+                  sections={sections}
+                  depth={depth + 1}
+                  onChange={onChange}
+                  disabled={disabled}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -338,9 +315,7 @@ export function TemplateEditor({
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
         <div>
-          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Name
-          </label>
+          <label className="text-xs text-muted-foreground">Name</label>
           <Input
             className="mt-1"
             value={template.name}
@@ -351,9 +326,7 @@ export function TemplateEditor({
           />
         </div>
         <div>
-          <label className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Description
-          </label>
+          <label className="text-xs text-muted-foreground">Description</label>
           <Input
             className="mt-1"
             value={template.description}

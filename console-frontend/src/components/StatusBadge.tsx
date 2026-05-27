@@ -9,9 +9,7 @@ export function StatusBadge({ status }: { status: MeetingStatus }) {
         ? "secondary"
         : "outline";
   return (
-    <Badge variant={variant} className="uppercase tracking-wide">
-      {status}
-    </Badge>
+    <Badge variant={variant}>{status}</Badge>
   );
 }
 

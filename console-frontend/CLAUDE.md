@@ -51,6 +51,17 @@ Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come 
 - `MeetingDetail` holds a local `draft` re-initialised when `meeting_id`/`generation_seq`/`template_status` changes (see the `draftKey` effect).
 - `types.ts` mirrors `src/console/models.py` — keep them in sync.
 
+## Design conventions
+
+The user dislikes visually noisy editor UI. Follow these rules everywhere in this app:
+
+- **No per-item boxes for nested / repeated structures.** Don't wrap each row of a list or tree in a bordered card. Show hierarchy with indentation and a single left tree-line, not with stacked borders. (See `TemplateEditor` for the canonical example.)
+- **One font family across the UI.** Do not use `font-mono`. No "tech" / monospace styling for ids, run ids, elapsed timers, or anything else. Use `tabular-nums` if you need digits to not jitter.
+- **Never render internal ids in the UI.** Section ids, meeting ids, run ids, etc. are for the network, not the user. If you need to display one for debugging, gate it behind a debug toggle.
+- **No ALL CAPS.** Don't use `uppercase` (with or without `tracking-wide`) for labels, badges, headings, or status text. Sentence case for headings, lowercase for chips.
+- **Header first, true collapse.** For any expandable item, the row's title is the first thing visible and is the *only* thing visible when collapsed. Body, notes, metadata, and children all live below the title and disappear together when the row is collapsed.
+- **Don't editorialise field labels.** Keep them short ("Speaker notes", not "Speaker notes · hidden from participants"). Explain hidden-from-participants / similar context in the placeholder or helper text instead.
+
 ## Verify changes
 
 `npm run build -w console-frontend` for a clean compile, then `docker compose build console-frontend && docker compose up -d` and open `http://localhost:8769`.

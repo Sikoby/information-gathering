@@ -34,7 +34,7 @@ export function Dashboard() {
           const items = meetings.filter((m) => m.status === group.status);
           return (
             <section key={group.status}>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
                 {group.label} ({items.length})
               </h2>
               <div className="space-y-3">
