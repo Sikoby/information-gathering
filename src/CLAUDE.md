@@ -44,6 +44,8 @@ python -m src.agent start
 
 For local non-container dev, use `uv run python -m src.agent dev` (dev mode is more verbose; `start` is for production).
 
+The runtime image installs Mesa's software-OpenGL stack (`libgl1`, `libegl1`, `libgl1-mesa-dri`) and sets `LIBGL_ALWAYS_SOFTWARE=1` so the shader-based avatar renderer in [avatar_render.py](avatar_render.py) can create an EGL context on a headless VM without a GPU. Without these the agent joins the room but publishes no audio/video tracks (the avatar owns both — see [avatar.py](avatar.py)).
+
 ## Env vars
 
 | Variable | Required | Notes |

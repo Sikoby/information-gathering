@@ -12,9 +12,23 @@ WORKDIR /app
 
 # tini reaps zombies and forwards SIGTERM to the Python process so that
 # agent shutdown callbacks (out/<run_id>/ flush) run on `docker stop`.
+#
+# libgl1 / libegl1 / libgl1-mesa-dri provide the EGL + software-OpenGL
+# stack the agent's shader-based avatar renderer (src/avatar_render.py)
+# loads via moderngl.create_standalone_context(backend="egl"). Mesa's
+# llvmpipe rasterizer runs on CPU, so no GPU is required on the host.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tini \
+    && apt-get install -y --no-install-recommends \
+        tini \
+        libgl1 \
+        libegl1 \
+        libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
+
+# Force Mesa to use its software rasterizer (llvmpipe) — there is no GPU
+# in the production VM, and without this hint Mesa tries DRI device nodes
+# that don't exist and falls back to errors instead of swrast.
+ENV LIBGL_ALWAYS_SOFTWARE=1
 
 COPY --from=deps /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
