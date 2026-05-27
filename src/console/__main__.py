@@ -2,7 +2,8 @@
 
 Serves the `/api/*` JSON API consumed by the console-frontend SPA (which is a
 separate nginx container that reverse-proxies `/api` here). Owns the Redis
-`meeting:*` registry and runs the reconcile background loop.
+`template:*` and `meeting:*` registries and runs the reconcile background
+loop.
 """
 
 from __future__ import annotations
@@ -44,19 +45,28 @@ async def _on_cleanup(app: web.Application) -> None:
 
 
 def build_app() -> web.Application:
-    # 50 MB ceiling — accommodates PPTX uploads on /api/meetings/upload.
+    # 50 MB ceiling — accommodates PPTX uploads on /api/templates/upload.
     app = web.Application(client_max_size=50 * 1024 * 1024)
-    app.router.add_post("/api/meetings", handlers.post_meetings)
-    app.router.add_post("/api/meetings/upload", handlers.post_meetings_upload)
+    app.router.add_post("/api/templates", handlers.post_templates)
+    app.router.add_post("/api/templates/upload", handlers.post_templates_upload)
+    app.router.add_get("/api/templates", handlers.get_templates)
+    app.router.add_get("/api/templates/{template_id}", handlers.get_template)
+    app.router.add_patch(
+        "/api/templates/{template_id}", handlers.patch_template
+    )
+    app.router.add_post(
+        "/api/templates/{template_id}/regenerate",
+        handlers.post_template_regenerate,
+    )
+    app.router.add_delete(
+        "/api/templates/{template_id}", handlers.delete_template
+    )
+    app.router.add_post(
+        "/api/templates/{template_id}/meetings",
+        handlers.post_template_start_meeting,
+    )
     app.router.add_get("/api/meetings", handlers.get_meetings)
     app.router.add_get("/api/meetings/{meeting_id}", handlers.get_meeting)
-    app.router.add_patch("/api/meetings/{meeting_id}", handlers.patch_meeting)
-    app.router.add_post(
-        "/api/meetings/{meeting_id}/start", handlers.post_start
-    )
-    app.router.add_post(
-        "/api/meetings/{meeting_id}/regenerate", handlers.post_regenerate
-    )
     app.router.add_delete(
         "/api/meetings/{meeting_id}", handlers.delete_meeting
     )

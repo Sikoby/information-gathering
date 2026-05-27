@@ -1,4 +1,15 @@
-"""HTTP handlers for the meeting console API (`/api/*` + `/healthz`)."""
+"""HTTP handlers for the meeting console API (`/api/*` + `/healthz`).
+
+The console serves two resource types:
+
+  - **Templates** (`/api/templates`) are the reusable thing. A user creates
+    one from a prompt (and optionally an uploaded .pptx/.pdf), edits it, and
+    can launch one meeting after another from it.
+  - **Meetings** (`/api/meetings`) are instances that reference a template,
+    own the LiveKit run state, and live forever as an audit log of past
+    meetings. A meeting is born `running` — there is no planned state on
+    the meeting side.
+"""
 
 from __future__ import annotations
 
@@ -12,15 +23,24 @@ from ..templates import TEMPLATES
 from ..templates.schema import Template
 from . import clients, generation, registry
 from .models import (
-    MeetingCreate,
-    MeetingPatch,
     MeetingRecord,
-    MeetingRegenerate,
-    MeetingStart,
+    MeetingStartFromTemplate,
+    TemplateCreate,
+    TemplatePatch,
+    TemplateRecord,
+    TemplateRegenerate,
 )
 
 
-def _record_json(rec: MeetingRecord) -> dict:
+_START_LOCK_KEY = "console:start:lock"
+_START_LOCK_TTL_SECONDS = 5
+
+
+def _template_json(rec: TemplateRecord) -> dict:
+    return json.loads(rec.model_dump_json())
+
+
+def _meeting_json(rec: MeetingRecord) -> dict:
     return json.loads(rec.model_dump_json())
 
 
@@ -41,13 +61,16 @@ async def _optional_body(request: web.Request) -> dict:
     return json.loads(raw) if raw.strip() else {}
 
 
-async def post_meetings(request: web.Request) -> web.Response:
+# ============================================================== templates
+
+
+async def post_templates(request: web.Request) -> web.Response:
     try:
         body = await _required_body(request)
     except json.JSONDecodeError:
         return web.json_response({"error": "invalid JSON body"}, status=400)
     try:
-        payload = MeetingCreate.model_validate(body)
+        payload = TemplateCreate.model_validate(body)
     except ValidationError as e:
         return _validation_error(e)
 
@@ -57,31 +80,28 @@ async def post_meetings(request: web.Request) -> web.Response:
             status=400,
         )
 
-    meeting_id = registry.new_meeting_id()
+    template_id = registry.new_template_id()
     now = registry.now_iso()
-    rec = MeetingRecord(
-        meeting_id=meeting_id,
+    rec = TemplateRecord(
+        template_id=template_id,
         title=payload.title,
-        prompt=payload.prompt,
+        source_prompt=payload.source_prompt,
         reference_template=payload.reference_template,
-        target_minutes=payload.target_minutes,
-        status="planned",
+        default_target_minutes=payload.default_target_minutes,
         template_status="generating",
-        run_id=meeting_id,
         created_at=now,
         updated_at=now,
     )
-    await registry.create(rec)
-    generation.spawn(request.app["http_session"], meeting_id, rec.generation_seq)
-    logger.info("created meeting_id={}", meeting_id)
-    return web.json_response(_record_json(rec), status=201)
+    await registry.create_template(rec)
+    generation.spawn(request.app["http_session"], template_id, rec.generation_seq)
+    logger.info("created template_id={}", template_id)
+    return web.json_response(_template_json(rec), status=201)
 
 
-async def post_meetings_upload(request: web.Request) -> web.Response:
+async def post_templates_upload(request: web.Request) -> web.Response:
     """Multipart create: file + form fields. Extracts the document, then
-    creates a meeting record with `document_outline` attached and spawns
-    generation. Same response shape as `POST /api/meetings` (the created
-    `MeetingRecord` JSON, 201)."""
+    creates a template record with `document_outline` attached and spawns
+    generation in presentation mode."""
     if not request.content_type.startswith("multipart/"):
         return web.json_response(
             {"error": "expected multipart/form-data"}, status=415
@@ -101,7 +121,12 @@ async def post_meetings_upload(request: web.Request) -> web.Response:
             file_name = part.filename or "upload"
             file_content_type = part.headers.get("Content-Type")
             file_bytes = await part.read(decode=False)
-        elif part.name in {"title", "prompt", "reference_template", "target_minutes"}:
+        elif part.name in {
+            "title",
+            "source_prompt",
+            "reference_template",
+            "default_target_minutes",
+        }:
             fields[part.name] = (await part.read(decode=True)).decode("utf-8")
 
     if file_bytes is None or file_name is None:
@@ -115,20 +140,22 @@ async def post_meetings_upload(request: web.Request) -> web.Response:
 
     create_body: dict = {
         "title": fields.get("title", "").strip(),
-        "prompt": fields.get("prompt", "").strip(),
+        "source_prompt": fields.get("source_prompt", "").strip(),
     }
     if fields.get("reference_template"):
         create_body["reference_template"] = fields["reference_template"]
-    if fields.get("target_minutes"):
+    if fields.get("default_target_minutes"):
         try:
-            create_body["target_minutes"] = int(fields["target_minutes"])
+            create_body["default_target_minutes"] = int(
+                fields["default_target_minutes"]
+            )
         except ValueError:
             return web.json_response(
-                {"error": "target_minutes must be an integer"}, status=400
+                {"error": "default_target_minutes must be an integer"}, status=400
             )
 
     try:
-        payload = MeetingCreate.model_validate(create_body)
+        payload = TemplateCreate.model_validate(create_body)
     except ValidationError as e:
         return _validation_error(e)
 
@@ -151,32 +178,30 @@ async def post_meetings_upload(request: web.Request) -> web.Response:
             {"error": f"failed to extract document: {e}"}, status=502
         )
 
-    meeting_id = registry.new_meeting_id()
+    template_id = registry.new_template_id()
     now = registry.now_iso()
-    rec = MeetingRecord(
-        meeting_id=meeting_id,
+    rec = TemplateRecord(
+        template_id=template_id,
         title=payload.title,
-        prompt=payload.prompt,
+        source_prompt=payload.source_prompt,
         reference_template=payload.reference_template,
-        target_minutes=payload.target_minutes,
-        status="planned",
+        default_target_minutes=payload.default_target_minutes,
         template_status="generating",
-        run_id=meeting_id,
         created_at=now,
         updated_at=now,
         document_filename=file_name,
         document_kind=kind,
         document_outline=outline,
     )
-    await registry.create(rec)
-    generation.spawn(request.app["http_session"], meeting_id, rec.generation_seq)
+    await registry.create_template(rec)
+    generation.spawn(request.app["http_session"], template_id, rec.generation_seq)
     logger.info(
-        "created meeting_id={} from document={} ({} slides)",
-        meeting_id,
+        "created template_id={} from document={} ({} slides)",
+        template_id,
         file_name,
         len(outline.get("slides", [])),
     )
-    return web.json_response(_record_json(rec), status=201)
+    return web.json_response(_template_json(rec), status=201)
 
 
 def _detect_kind(filename: str, content_type: str | None) -> str | None:
@@ -190,44 +215,40 @@ def _detect_kind(filename: str, content_type: str | None) -> str | None:
     return None
 
 
-async def get_meetings(_request: web.Request) -> web.Response:
-    recs = await registry.list_all()
-    return web.json_response({"meetings": [_record_json(r) for r in recs]})
+async def get_templates(_request: web.Request) -> web.Response:
+    recs = await registry.list_templates()
+    return web.json_response({"templates": [_template_json(r) for r in recs]})
 
 
-async def get_meeting(request: web.Request) -> web.Response:
-    rec = await registry.get(request.match_info["meeting_id"])
+async def get_template(request: web.Request) -> web.Response:
+    rec = await registry.get_template(request.match_info["template_id"])
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(_record_json(rec))
+    return web.json_response(_template_json(rec))
 
 
-async def patch_meeting(request: web.Request) -> web.Response:
-    meeting_id = request.match_info["meeting_id"]
+async def patch_template(request: web.Request) -> web.Response:
+    template_id = request.match_info["template_id"]
     try:
         body = await _required_body(request)
     except json.JSONDecodeError:
         return web.json_response({"error": "invalid JSON body"}, status=400)
     try:
-        patch = MeetingPatch.model_validate(body)
+        patch = TemplatePatch.model_validate(body)
     except ValidationError as e:
         return _validation_error(e)
 
-    rec = await registry.get(meeting_id)
+    rec = await registry.get_template(template_id)
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
-    if rec.status != "planned":
-        return web.json_response(
-            {"error": f"cannot edit a {rec.status} meeting"}, status=409
-        )
 
     fields: dict = {}
     if patch.title is not None:
         fields["title"] = patch.title
-    if patch.prompt is not None:
-        fields["prompt"] = patch.prompt
-    if patch.target_minutes is not None:
-        fields["target_minutes"] = patch.target_minutes
+    if patch.source_prompt is not None:
+        fields["source_prompt"] = patch.source_prompt
+    if patch.default_target_minutes is not None:
+        fields["default_target_minutes"] = patch.default_target_minutes
     if patch.template is not None:
         try:
             validated = Template.model_validate(patch.template)
@@ -240,74 +261,21 @@ async def patch_meeting(request: web.Request) -> web.Response:
         fields["template"] = json.loads(validated.model_dump_json())
 
     if fields:
-        await registry.update(meeting_id, **fields)
-    updated = await registry.get(meeting_id)
+        await registry.update_template(template_id, **fields)
+    updated = await registry.get_template(template_id)
     if updated is None:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(_record_json(updated))
+    return web.json_response(_template_json(updated))
 
 
-async def post_start(request: web.Request) -> web.Response:
-    meeting_id = request.match_info["meeting_id"]
+async def post_template_regenerate(request: web.Request) -> web.Response:
+    template_id = request.match_info["template_id"]
     try:
         body = await _optional_body(request)
     except json.JSONDecodeError:
         return web.json_response({"error": "invalid JSON body"}, status=400)
     try:
-        opts = MeetingStart.model_validate(body)
-    except ValidationError as e:
-        return _validation_error(e)
-
-    rec = await registry.get(meeting_id)
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
-    if rec.status != "planned":
-        return web.json_response(
-            {"error": f"meeting is already {rec.status}"}, status=409
-        )
-    if rec.template_status != "ready" or rec.template is None:
-        return web.json_response(
-            {"error": f"template is not ready (status={rec.template_status})"},
-            status=424,
-        )
-
-    target_minutes = opts.target_minutes or rec.target_minutes
-    briefing = f"# {rec.title}\n\n{rec.prompt}"
-    try:
-        result = await clients.dispatch_meeting(
-            request.app["http_session"],
-            run_id=rec.run_id or meeting_id,
-            briefing_description=briefing,
-            custom_template=rec.template,
-            target_minutes=target_minutes,
-        )
-    except Exception as e:  # noqa: BLE001 - surface any dispatch failure as 502
-        logger.exception("dispatch failed meeting_id={}", meeting_id)
-        return web.json_response({"error": str(e)}, status=502)
-
-    await registry.update(
-        meeting_id,
-        status="running",
-        target_minutes=target_minutes,
-        run_id=result["run_id"],
-        room=result.get("room"),
-        join_url=result.get("join_url"),
-        webapp_url=result.get("webapp_url"),
-        dispatched_at=registry.now_iso(),
-    )
-    updated = await registry.get(meeting_id)
-    logger.info("started meeting_id={} run_id={}", meeting_id, result["run_id"])
-    return web.json_response(_record_json(updated) if updated else {})
-
-
-async def post_regenerate(request: web.Request) -> web.Response:
-    meeting_id = request.match_info["meeting_id"]
-    try:
-        body = await _optional_body(request)
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid JSON body"}, status=400)
-    try:
-        opts = MeetingRegenerate.model_validate(body)
+        opts = TemplateRegenerate.model_validate(body)
     except ValidationError as e:
         return _validation_error(e)
 
@@ -317,13 +285,9 @@ async def post_regenerate(request: web.Request) -> web.Response:
             status=400,
         )
 
-    rec = await registry.get(meeting_id)
+    rec = await registry.get_template(template_id)
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
-    if rec.status != "planned":
-        return web.json_response(
-            {"error": f"cannot regenerate a {rec.status} meeting"}, status=409
-        )
 
     new_seq = rec.generation_seq + 1
     fields: dict = {
@@ -331,15 +295,136 @@ async def post_regenerate(request: web.Request) -> web.Response:
         "template_status": "generating",
         "template_error": None,
     }
-    if opts.prompt is not None:
-        fields["prompt"] = opts.prompt
+    if opts.source_prompt is not None:
+        fields["source_prompt"] = opts.source_prompt
     if opts.reference_template is not None:
         fields["reference_template"] = opts.reference_template
-    await registry.update(meeting_id, **fields)
-    generation.spawn(request.app["http_session"], meeting_id, new_seq)
-    updated = await registry.get(meeting_id)
-    logger.info("regenerate meeting_id={} seq={}", meeting_id, new_seq)
-    return web.json_response(_record_json(updated) if updated else {}, status=202)
+    await registry.update_template(template_id, **fields)
+    generation.spawn(request.app["http_session"], template_id, new_seq)
+    updated = await registry.get_template(template_id)
+    logger.info("regenerate template_id={} seq={}", template_id, new_seq)
+    return web.json_response(
+        _template_json(updated) if updated else {}, status=202
+    )
+
+
+async def delete_template(request: web.Request) -> web.Response:
+    template_id = request.match_info["template_id"]
+    rec = await registry.get_template(template_id)
+    if rec is None:
+        return web.json_response({"error": "not found"}, status=404)
+
+    meetings = await registry.list_all()
+    referencing = [m for m in meetings if m.template_id == template_id]
+    if referencing:
+        running_count = sum(1 for m in referencing if m.status == "running")
+        return web.json_response(
+            {
+                "error": "template is referenced by meetings",
+                "total_count": len(referencing),
+                "running_count": running_count,
+            },
+            status=409,
+        )
+
+    await registry.delete_template(template_id)
+    return web.Response(status=204)
+
+
+async def post_template_start_meeting(request: web.Request) -> web.Response:
+    template_id = request.match_info["template_id"]
+    try:
+        body = await _optional_body(request)
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+    try:
+        opts = MeetingStartFromTemplate.model_validate(body)
+    except ValidationError as e:
+        return _validation_error(e)
+
+    tmpl = await registry.get_template(template_id)
+    if tmpl is None:
+        return web.json_response({"error": "not found"}, status=404)
+    if tmpl.template_status != "ready" or tmpl.template is None:
+        return web.json_response(
+            {"error": f"template is not ready (status={tmpl.template_status})"},
+            status=424,
+        )
+
+    # Narrow the read-modify-write race across replicas. The list_all check
+    # below is the real guard; this just shrinks the window.
+    if not await registry.try_acquire_leader(
+        _START_LOCK_KEY, _START_LOCK_TTL_SECONDS
+    ):
+        return web.json_response(
+            {"error": "another start is in progress"}, status=409
+        )
+
+    running = [m for m in await registry.list_all() if m.status == "running"]
+    if running:
+        return web.json_response(
+            {
+                "error": "another meeting is running",
+                "running_meeting_id": running[0].meeting_id,
+            },
+            status=409,
+        )
+
+    meeting_id = registry.new_meeting_id()
+    target_minutes = opts.target_minutes or tmpl.default_target_minutes
+    effective_title = opts.title_override or tmpl.title
+    briefing = f"# {effective_title}\n\n{tmpl.source_prompt}"
+
+    try:
+        result = await clients.dispatch_meeting(
+            request.app["http_session"],
+            run_id=meeting_id,
+            briefing_description=briefing,
+            custom_template=tmpl.template,
+            target_minutes=target_minutes,
+        )
+    except Exception as e:  # noqa: BLE001 - surface any dispatch failure as 502
+        logger.exception("dispatch failed template_id={}", template_id)
+        return web.json_response({"error": str(e)}, status=502)
+
+    now = registry.now_iso()
+    rec = MeetingRecord(
+        meeting_id=meeting_id,
+        template_id=template_id,
+        title_override=opts.title_override,
+        target_minutes=target_minutes,
+        status="running",
+        run_id=result["run_id"],
+        room=result.get("room"),
+        join_url=result.get("join_url"),
+        webapp_url=result.get("webapp_url"),
+        created_at=now,
+        updated_at=now,
+        dispatched_at=now,
+    )
+    await registry.create(rec)
+    logger.info(
+        "started meeting_id={} from template_id={} run_id={}",
+        meeting_id,
+        template_id,
+        result["run_id"],
+    )
+    return web.json_response(_meeting_json(rec), status=201)
+
+
+# =============================================================== meetings
+
+
+async def get_meetings(_request: web.Request) -> web.Response:
+    recs = await registry.list_all()
+    return web.json_response({"meetings": [_meeting_json(r) for r in recs]})
+
+
+async def get_meeting(request: web.Request) -> web.Response:
+    rec = await registry.get(request.match_info["meeting_id"])
+    if rec is None:
+        return web.json_response({"error": "not found"}, status=404)
+    return web.json_response(_meeting_json(rec))
 
 
 async def delete_meeting(request: web.Request) -> web.Response:
@@ -353,6 +438,9 @@ async def delete_meeting(request: web.Request) -> web.Response:
         )
     await registry.delete(meeting_id)
     return web.Response(status=204)
+
+
+# ================================================================ helpers
 
 
 async def get_reference_templates(_request: web.Request) -> web.Response:

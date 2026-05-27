@@ -1,14 +1,15 @@
-"""Background task: reconcile meeting lifecycle.
+"""Background task: reconcile template generation + meeting lifecycle.
 
 Runs every CONSOLE_RECONCILE_INTERVAL seconds under a Redis leader lock (so
-only one replica does the work per tick). Two jobs:
+only one replica does the work per tick). Two passes:
 
-  1. Running -> Done. Reads the agent's `state:<run_id>` snapshot; when it
-     carries an `end_reason`, the meeting is finished. If no snapshot ever
-     appears, a grace window catches a crashed dispatch/agent and a 24h
-     ceiling catches a SIGKILLed agent whose snapshot TTL'd out.
-  2. Reap stale generations. A `planned` meeting stuck `generating` long past
-     the generation timeout means the replica that owned the job died.
+  1. Meeting Running -> Done. Reads the agent's `state:<run_id>` snapshot;
+     when it carries an `end_reason`, the meeting is finished. If no
+     snapshot ever appears, a grace window catches a crashed dispatch/agent
+     and a 24h ceiling catches a SIGKILLed agent whose snapshot TTL'd out.
+  2. Reap stale template generations. A template stuck `generating` long
+     past the generation timeout means the replica that owned the job
+     died — flip it to `failed`.
 
 All transitions go through the atomic Lua merge, so the pass is idempotent
 even if two replicas briefly race.
@@ -23,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from loguru import logger
 
 from . import registry
-from .models import MeetingRecord
+from .models import MeetingRecord, TemplateRecord
 
 
 _LEADER_KEY = "console:reconcile:leader"
@@ -58,8 +59,9 @@ async def _reconcile_once() -> None:
     for rec in await registry.list_all():
         if rec.status == "running":
             await _reconcile_running(rec, now, grace_min)
-        elif rec.status == "planned" and rec.template_status == "generating":
-            await _reap_stale_generation(rec, now)
+    for tmpl in await registry.list_templates():
+        if tmpl.template_status == "generating":
+            await _reap_stale_generation(tmpl, now)
 
 
 async def _reconcile_running(
@@ -99,12 +101,12 @@ async def _reconcile_running(
         )
 
 
-async def _reap_stale_generation(rec: MeetingRecord, now: datetime) -> None:
+async def _reap_stale_generation(rec: TemplateRecord, now: datetime) -> None:
     updated = _parse_iso(rec.updated_at)
     if now - updated > timedelta(minutes=_GENERATION_STALE_MINUTES):
-        logger.warning("reaping stale generation meeting_id={}", rec.meeting_id)
-        await registry.update_if_seq(
-            rec.meeting_id,
+        logger.warning("reaping stale generation template_id={}", rec.template_id)
+        await registry.update_template_if_seq(
+            rec.template_id,
             rec.generation_seq,
             template_status="failed",
             template_error="generation did not complete (worker restarted?)",

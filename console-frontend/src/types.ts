@@ -14,7 +14,7 @@ export {
   scheduledNodes,
 } from "@ig/ui";
 
-export type MeetingStatus = "planned" | "running" | "done";
+export type MeetingStatus = "running" | "done";
 export type TemplateStatus = "generating" | "ready" | "failed";
 
 export type DocumentKind = "pptx" | "pdf";
@@ -32,20 +32,33 @@ export type DocumentOutline = {
   slides: SlideOutline[];
 };
 
-/** Mirrors src/console/models.py MeetingRecord. Keep in sync. */
-export type MeetingRecord = {
-  meeting_id: string;
+/** Mirrors src/console/models.py TemplateRecord. Keep in sync. */
+export type TemplateRecord = {
+  template_id: string;
   title: string;
-  prompt: string;
+  source_prompt: string;
   reference_template: string | null;
-  target_minutes: number;
-  status: MeetingStatus;
+  default_target_minutes: number;
   template_status: TemplateStatus;
   template: Template | null;
   template_error: string | null;
   template_approved: boolean | null;
   template_iterations_used: number | null;
   generation_seq: number;
+  document_filename: string | null;
+  document_kind: DocumentKind | null;
+  document_outline: DocumentOutline | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Mirrors src/console/models.py MeetingRecord. Keep in sync. */
+export type MeetingRecord = {
+  meeting_id: string;
+  template_id: string;
+  title_override: string | null;
+  target_minutes: number;
+  status: MeetingStatus;
   run_id: string | null;
   room: string | null;
   join_url: string | null;
@@ -55,9 +68,6 @@ export type MeetingRecord = {
   dispatched_at: string | null;
   ended_at: string | null;
   end_reason: string | null;
-  document_filename: string | null;
-  document_kind: DocumentKind | null;
-  document_outline: DocumentOutline | null;
 };
 
 export type ReferenceTemplate = {

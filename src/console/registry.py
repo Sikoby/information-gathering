@@ -1,18 +1,20 @@
-"""Redis-backed meeting registry.
+"""Redis-backed registries for templates and meetings.
 
 Stateless across console replicas: every record update goes through an atomic
 Lua compare-and-swap merge, so concurrent writers (the PATCH handler, the
 generation task, the reconcile loop, any replica) never clobber each other.
 
 Storage layout:
-  meeting:<meeting_id>   string (JSON) — the MeetingRecord, no TTL
-  meetings:index         sorted set — member=meeting_id, score=created epoch
-  console:reconcile:leader  short-TTL string — reconcile-loop leader lock
+  template:<template_id>     string (JSON) — the TemplateRecord, no TTL
+  templates:index            sorted set — member=template_id, score=created epoch
+  meeting:<meeting_id>       string (JSON) — the MeetingRecord, no TTL
+  meetings:index             sorted set — member=meeting_id, score=created epoch
+  console:reconcile:leader   short-TTL string — reconcile-loop leader lock
 
-The stored JSON keeps `template` as an embedded JSON *string* (not a nested
-object) so the Lua merge — which decodes and re-encodes the whole record —
-never round-trips template's nested arrays through cjson (which would corrupt
-any empty arrays in the nested Section tree into `{}`).
+Templates store `template` (the Template body) and `document_outline` as
+embedded JSON *strings* — the Lua merge decodes and re-encodes the whole
+record on every write, and cjson collapses empty nested arrays to `{}`,
+which would corrupt the section tree and the slide list.
 """
 
 from __future__ import annotations
@@ -25,18 +27,24 @@ from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
 from loguru import logger
+from pydantic import BaseModel
 
-from .models import MeetingRecord
+from .models import MeetingRecord, TemplateRecord
 
 
 _MEETING_PREFIX = "meeting:"
-_INDEX_KEY = "meetings:index"
+_MEETINGS_INDEX_KEY = "meetings:index"
+_TEMPLATE_PREFIX = "template:"
+_TEMPLATES_INDEX_KEY = "templates:index"
+
+_MEETING_JSON_STRING_FIELDS: tuple[str, ...] = ()
+_TEMPLATE_JSON_STRING_FIELDS: tuple[str, ...] = ("template", "document_outline")
 
 _redis: aioredis.Redis | None = None
 _merge_script: aioredis.client.AsyncScript | None = None
 
 
-# Atomic field merge. KEYS[1]=meeting key. ARGV[1]=JSON of fields to merge,
+# Atomic field merge. KEYS[1]=record key. ARGV[1]=JSON of fields to merge,
 # ARGV[2]=updated_at, ARGV[3]=expected generation_seq ("" to skip the check).
 # Returns 1 applied, 0 seq-mismatch, -1 missing.
 _MERGE_LUA = """
@@ -73,33 +81,76 @@ def meeting_key(meeting_id: str) -> str:
     return f"{_MEETING_PREFIX}{meeting_id}"
 
 
+def template_key(template_id: str) -> str:
+    return f"{_TEMPLATE_PREFIX}{template_id}"
+
+
 def new_meeting_id() -> str:
     return "meeting-" + uuid.uuid4().hex
+
+
+def new_template_id() -> str:
+    return "template-" + uuid.uuid4().hex
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _dump_for_storage(rec: MeetingRecord) -> str:
+def _dump_for_storage(rec: BaseModel, json_string_fields: tuple[str, ...]) -> str:
     data = json.loads(rec.model_dump_json())
-    if data.get("template") is not None:
-        data["template"] = json.dumps(data["template"])
+    for f in json_string_fields:
+        if data.get(f) is not None:
+            data[f] = json.dumps(data[f])
     return json.dumps(data)
 
 
-def _load_from_storage(raw: str) -> MeetingRecord:
+def _load_from_storage(
+    raw: str,
+    model: type[BaseModel],
+    json_string_fields: tuple[str, ...],
+):
     data = json.loads(raw)
-    if isinstance(data.get("template"), str):
-        data["template"] = json.loads(data["template"])
-    return MeetingRecord.model_validate(data)
+    for f in json_string_fields:
+        if isinstance(data.get(f), str):
+            data[f] = json.loads(data[f])
+    return model.model_validate(data)
+
+
+async def _merge(
+    key: str,
+    fields: dict,
+    expected_seq: int | None,
+    *,
+    json_string_fields: tuple[str, ...] = (),
+) -> bool:
+    fields = dict(fields)
+    for f in json_string_fields:
+        v = fields.get(f)
+        if v is not None and not isinstance(v, str):
+            fields[f] = json.dumps(v)
+    result = await _get_merge_script()(
+        keys=[key],
+        args=[
+            json.dumps(fields),
+            now_iso(),
+            "" if expected_seq is None else str(expected_seq),
+        ],
+    )
+    return result == 1
+
+
+# ---------------------------------------------------------------- meetings
 
 
 async def create(rec: MeetingRecord) -> None:
     client = get_client()
     async with client.pipeline(transaction=True) as pipe:
-        pipe.set(meeting_key(rec.meeting_id), _dump_for_storage(rec))
-        pipe.zadd(_INDEX_KEY, {rec.meeting_id: time.time()})
+        pipe.set(
+            meeting_key(rec.meeting_id),
+            _dump_for_storage(rec, _MEETING_JSON_STRING_FIELDS),
+        )
+        pipe.zadd(_MEETINGS_INDEX_KEY, {rec.meeting_id: time.time()})
         await pipe.execute()
 
 
@@ -107,12 +158,12 @@ async def get(meeting_id: str) -> MeetingRecord | None:
     raw = await get_client().get(meeting_key(meeting_id))
     if raw is None:
         return None
-    return _load_from_storage(raw)
+    return _load_from_storage(raw, MeetingRecord, _MEETING_JSON_STRING_FIELDS)
 
 
 async def list_all(limit: int = 200) -> list[MeetingRecord]:
     client = get_client()
-    ids = await client.zrevrange(_INDEX_KEY, 0, limit - 1)
+    ids = await client.zrevrange(_MEETINGS_INDEX_KEY, 0, limit - 1)
     if not ids:
         return []
     raws = await client.mget([meeting_key(mid) for mid in ids])
@@ -121,7 +172,9 @@ async def list_all(limit: int = 200) -> list[MeetingRecord]:
         if raw is None:
             continue
         try:
-            out.append(_load_from_storage(raw))
+            out.append(
+                _load_from_storage(raw, MeetingRecord, _MEETING_JSON_STRING_FIELDS)
+            )
         except Exception as e:  # noqa: BLE001 - skip a single bad record
             logger.warning("skipping unparseable meeting record: {}", e)
     return out
@@ -131,34 +184,90 @@ async def delete(meeting_id: str) -> None:
     client = get_client()
     async with client.pipeline(transaction=True) as pipe:
         pipe.delete(meeting_key(meeting_id))
-        pipe.zrem(_INDEX_KEY, meeting_id)
+        pipe.zrem(_MEETINGS_INDEX_KEY, meeting_id)
         await pipe.execute()
 
 
 async def update(meeting_id: str, **fields) -> bool:
     """Atomic field merge. Returns False if the meeting does not exist."""
-    return await _merge(meeting_id, fields, expected_seq=None)
-
-
-async def update_if_seq(meeting_id: str, expected_seq: int, **fields) -> bool:
-    """Atomic field merge guarded by generation_seq. True iff applied."""
-    return await _merge(meeting_id, fields, expected_seq=expected_seq)
-
-
-async def _merge(meeting_id: str, fields: dict, expected_seq: int | None) -> bool:
-    fields = dict(fields)
-    tmpl = fields.get("template")
-    if tmpl is not None and not isinstance(tmpl, str):
-        fields["template"] = json.dumps(tmpl)
-    result = await _get_merge_script()(
-        keys=[meeting_key(meeting_id)],
-        args=[
-            json.dumps(fields),
-            now_iso(),
-            "" if expected_seq is None else str(expected_seq),
-        ],
+    return await _merge(
+        meeting_key(meeting_id),
+        fields,
+        expected_seq=None,
+        json_string_fields=_MEETING_JSON_STRING_FIELDS,
     )
-    return result == 1
+
+
+# ---------------------------------------------------------------- templates
+
+
+async def create_template(rec: TemplateRecord) -> None:
+    client = get_client()
+    async with client.pipeline(transaction=True) as pipe:
+        pipe.set(
+            template_key(rec.template_id),
+            _dump_for_storage(rec, _TEMPLATE_JSON_STRING_FIELDS),
+        )
+        pipe.zadd(_TEMPLATES_INDEX_KEY, {rec.template_id: time.time()})
+        await pipe.execute()
+
+
+async def get_template(template_id: str) -> TemplateRecord | None:
+    raw = await get_client().get(template_key(template_id))
+    if raw is None:
+        return None
+    return _load_from_storage(raw, TemplateRecord, _TEMPLATE_JSON_STRING_FIELDS)
+
+
+async def list_templates(limit: int = 200) -> list[TemplateRecord]:
+    client = get_client()
+    ids = await client.zrevrange(_TEMPLATES_INDEX_KEY, 0, limit - 1)
+    if not ids:
+        return []
+    raws = await client.mget([template_key(tid) for tid in ids])
+    out: list[TemplateRecord] = []
+    for raw in raws:
+        if raw is None:
+            continue
+        try:
+            out.append(
+                _load_from_storage(raw, TemplateRecord, _TEMPLATE_JSON_STRING_FIELDS)
+            )
+        except Exception as e:  # noqa: BLE001 - skip a single bad record
+            logger.warning("skipping unparseable template record: {}", e)
+    return out
+
+
+async def delete_template(template_id: str) -> None:
+    client = get_client()
+    async with client.pipeline(transaction=True) as pipe:
+        pipe.delete(template_key(template_id))
+        pipe.zrem(_TEMPLATES_INDEX_KEY, template_id)
+        await pipe.execute()
+
+
+async def update_template(template_id: str, **fields) -> bool:
+    return await _merge(
+        template_key(template_id),
+        fields,
+        expected_seq=None,
+        json_string_fields=_TEMPLATE_JSON_STRING_FIELDS,
+    )
+
+
+async def update_template_if_seq(
+    template_id: str, expected_seq: int, **fields
+) -> bool:
+    """Atomic field merge guarded by generation_seq. True iff applied."""
+    return await _merge(
+        template_key(template_id),
+        fields,
+        expected_seq=expected_seq,
+        json_string_fields=_TEMPLATE_JSON_STRING_FIELDS,
+    )
+
+
+# ---------------------------------------------------------------- shared
 
 
 async def get_run_state(run_id: str) -> dict | None:
