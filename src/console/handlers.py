@@ -14,10 +14,11 @@ The console serves two resource types:
 from __future__ import annotations
 
 import json
+from typing import TypeVar
 
 from aiohttp import web
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..templates import TEMPLATES
 from ..templates.schema import Template
@@ -35,13 +36,7 @@ from .models import (
 _START_LOCK_KEY = "console:start:lock"
 _START_LOCK_TTL_SECONDS = 5
 
-
-def _template_json(rec: TemplateRecord) -> dict:
-    return json.loads(rec.model_dump_json())
-
-
-def _meeting_json(rec: MeetingRecord) -> dict:
-    return json.loads(rec.model_dump_json())
+_T = TypeVar("_T", bound=BaseModel)
 
 
 def _validation_error(e: ValidationError) -> web.Response:
@@ -51,34 +46,41 @@ def _validation_error(e: ValidationError) -> web.Response:
     )
 
 
-async def _required_body(request: web.Request) -> dict:
+async def _parse_body(
+    request: web.Request, model: type[_T], *, optional: bool = False
+) -> _T | web.Response:
     raw = await request.read()
-    return json.loads(raw)  # raises JSONDecodeError on bad/empty body
+    if optional and not raw.strip():
+        body: dict = {}
+    else:
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            return web.json_response({"error": "invalid JSON body"}, status=400)
+    try:
+        return model.model_validate(body)
+    except ValidationError as e:
+        return _validation_error(e)
 
 
-async def _optional_body(request: web.Request) -> dict:
-    raw = await request.read()
-    return json.loads(raw) if raw.strip() else {}
+def _check_reference_template(name: str | None) -> web.Response | None:
+    if name and name not in TEMPLATES:
+        return web.json_response(
+            {"error": f"unknown reference_template; known: {sorted(TEMPLATES)}"},
+            status=400,
+        )
+    return None
 
 
 # ============================================================== templates
 
 
 async def post_templates(request: web.Request) -> web.Response:
-    try:
-        body = await _required_body(request)
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid JSON body"}, status=400)
-    try:
-        payload = TemplateCreate.model_validate(body)
-    except ValidationError as e:
-        return _validation_error(e)
-
-    if payload.reference_template and payload.reference_template not in TEMPLATES:
-        return web.json_response(
-            {"error": f"unknown reference_template; known: {sorted(TEMPLATES)}"},
-            status=400,
-        )
+    payload = await _parse_body(request, TemplateCreate)
+    if isinstance(payload, web.Response):
+        return payload
+    if (err := _check_reference_template(payload.reference_template)) is not None:
+        return err
 
     template_id = registry.new_template_id()
     now = registry.now_iso()
@@ -95,7 +97,7 @@ async def post_templates(request: web.Request) -> web.Response:
     await registry.create_template(rec)
     generation.spawn(request.app["http_session"], template_id, rec.generation_seq)
     logger.info("created template_id={}", template_id)
-    return web.json_response(_template_json(rec), status=201)
+    return web.json_response(rec.model_dump(mode="json"), status=201)
 
 
 async def post_templates_upload(request: web.Request) -> web.Response:
@@ -158,12 +160,8 @@ async def post_templates_upload(request: web.Request) -> web.Response:
         payload = TemplateCreate.model_validate(create_body)
     except ValidationError as e:
         return _validation_error(e)
-
-    if payload.reference_template and payload.reference_template not in TEMPLATES:
-        return web.json_response(
-            {"error": f"unknown reference_template; known: {sorted(TEMPLATES)}"},
-            status=400,
-        )
+    if (err := _check_reference_template(payload.reference_template)) is not None:
+        return err
 
     try:
         outline = await clients.extract_document(
@@ -201,7 +199,7 @@ async def post_templates_upload(request: web.Request) -> web.Response:
         file_name,
         len(outline.get("slides", [])),
     )
-    return web.json_response(_template_json(rec), status=201)
+    return web.json_response(rec.model_dump(mode="json"), status=201)
 
 
 def _detect_kind(filename: str, content_type: str | None) -> str | None:
@@ -217,73 +215,55 @@ def _detect_kind(filename: str, content_type: str | None) -> str | None:
 
 async def get_templates(_request: web.Request) -> web.Response:
     recs = await registry.list_templates()
-    return web.json_response({"templates": [_template_json(r) for r in recs]})
+    return web.json_response(
+        {"templates": [r.model_dump(mode="json") for r in recs]}
+    )
 
 
 async def get_template(request: web.Request) -> web.Response:
     rec = await registry.get_template(request.match_info["template_id"])
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(_template_json(rec))
+    return web.json_response(rec.model_dump(mode="json"))
 
 
 async def patch_template(request: web.Request) -> web.Response:
     template_id = request.match_info["template_id"]
-    try:
-        body = await _required_body(request)
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid JSON body"}, status=400)
-    try:
-        patch = TemplatePatch.model_validate(body)
-    except ValidationError as e:
-        return _validation_error(e)
+    patch = await _parse_body(request, TemplatePatch)
+    if isinstance(patch, web.Response):
+        return patch
 
     rec = await registry.get_template(template_id)
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
 
-    fields: dict = {}
-    if patch.title is not None:
-        fields["title"] = patch.title
-    if patch.source_prompt is not None:
-        fields["source_prompt"] = patch.source_prompt
-    if patch.default_target_minutes is not None:
-        fields["default_target_minutes"] = patch.default_target_minutes
-    if patch.template is not None:
+    fields = patch.model_dump(exclude_unset=True, exclude_none=True)
+    if "template" in fields:
         try:
-            validated = Template.model_validate(patch.template)
+            validated = Template.model_validate(fields["template"])
         except ValidationError as e:
             return web.json_response(
                 {"error": "invalid template", "details": json.loads(e.json())},
                 status=400,
             )
         # Store the re-serialized template (with the auto-appended "other").
-        fields["template"] = json.loads(validated.model_dump_json())
+        fields["template"] = validated.model_dump(mode="json")
 
     if fields:
         await registry.update_template(template_id, **fields)
     updated = await registry.get_template(template_id)
     if updated is None:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(_template_json(updated))
+    return web.json_response(updated.model_dump(mode="json"))
 
 
 async def post_template_regenerate(request: web.Request) -> web.Response:
     template_id = request.match_info["template_id"]
-    try:
-        body = await _optional_body(request)
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid JSON body"}, status=400)
-    try:
-        opts = TemplateRegenerate.model_validate(body)
-    except ValidationError as e:
-        return _validation_error(e)
-
-    if opts.reference_template and opts.reference_template not in TEMPLATES:
-        return web.json_response(
-            {"error": f"unknown reference_template; known: {sorted(TEMPLATES)}"},
-            status=400,
-        )
+    opts = await _parse_body(request, TemplateRegenerate, optional=True)
+    if isinstance(opts, web.Response):
+        return opts
+    if (err := _check_reference_template(opts.reference_template)) is not None:
+        return err
 
     rec = await registry.get_template(template_id)
     if rec is None:
@@ -294,17 +274,14 @@ async def post_template_regenerate(request: web.Request) -> web.Response:
         "generation_seq": new_seq,
         "template_status": "generating",
         "template_error": None,
+        **opts.model_dump(exclude_unset=True, exclude_none=True),
     }
-    if opts.source_prompt is not None:
-        fields["source_prompt"] = opts.source_prompt
-    if opts.reference_template is not None:
-        fields["reference_template"] = opts.reference_template
     await registry.update_template(template_id, **fields)
     generation.spawn(request.app["http_session"], template_id, new_seq)
     updated = await registry.get_template(template_id)
     logger.info("regenerate template_id={} seq={}", template_id, new_seq)
     return web.json_response(
-        _template_json(updated) if updated else {}, status=202
+        updated.model_dump(mode="json") if updated else {}, status=202
     )
 
 
@@ -333,14 +310,9 @@ async def delete_template(request: web.Request) -> web.Response:
 
 async def post_template_start_meeting(request: web.Request) -> web.Response:
     template_id = request.match_info["template_id"]
-    try:
-        body = await _optional_body(request)
-    except json.JSONDecodeError:
-        return web.json_response({"error": "invalid JSON body"}, status=400)
-    try:
-        opts = MeetingStartFromTemplate.model_validate(body)
-    except ValidationError as e:
-        return _validation_error(e)
+    opts = await _parse_body(request, MeetingStartFromTemplate, optional=True)
+    if isinstance(opts, web.Response):
+        return opts
 
     tmpl = await registry.get_template(template_id)
     if tmpl is None:
@@ -409,7 +381,7 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
         template_id,
         result["run_id"],
     )
-    return web.json_response(_meeting_json(rec), status=201)
+    return web.json_response(rec.model_dump(mode="json"), status=201)
 
 
 # =============================================================== meetings
@@ -417,14 +389,16 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
 
 async def get_meetings(_request: web.Request) -> web.Response:
     recs = await registry.list_all()
-    return web.json_response({"meetings": [_meeting_json(r) for r in recs]})
+    return web.json_response(
+        {"meetings": [r.model_dump(mode="json") for r in recs]}
+    )
 
 
 async def get_meeting(request: web.Request) -> web.Response:
     rec = await registry.get(request.match_info["meeting_id"])
     if rec is None:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response(_meeting_json(rec))
+    return web.json_response(rec.model_dump(mode="json"))
 
 
 async def delete_meeting(request: web.Request) -> web.Response:

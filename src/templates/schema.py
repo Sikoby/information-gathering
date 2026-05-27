@@ -85,10 +85,6 @@ def descendants_of(sections: list[Section], sid: str) -> list[Section]:
     return out
 
 
-def answers_under(sections: list[Section], sid: str) -> list[Section]:
-    return [s for s in descendants_of(sections, sid) if s.kind == SectionKind.ANSWER]
-
-
 def path_to(sections: list[Section], sid: str) -> list[Section]:
     """Root → node list, inclusive. Empty if sid is unknown."""
     by_id = {s.id: s for s in sections}
@@ -302,7 +298,6 @@ __all__ = [
     "children_of",
     "children_of_kind",
     "descendants_of",
-    "answers_under",
     "path_to",
     "depth_of",
     "is_scheduled",

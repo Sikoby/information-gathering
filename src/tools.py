@@ -32,10 +32,6 @@ from .templates import (
 )
 
 
-def _now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 def _agenda(state: MeetingState) -> str:
     return " → ".join(s.header for s in scheduled_nodes(state.sections))
 
@@ -86,7 +82,7 @@ async def record_finding(
             kind=SectionKind.ANSWER,
             header=header,
             body=body,
-            ts=_now(),
+            ts=datetime.now(timezone.utc),
         )
     )
     logger.info(
@@ -333,7 +329,7 @@ async def deliver_pyramid_summary(
             kind=SectionKind.TOPIC,
             header=top_conclusion,
             body=body,
-            ts=_now(),
+            ts=datetime.now(timezone.utc),
         )
     )
     logger.info("pyramid summary delivered: {}", top_conclusion)
@@ -380,7 +376,7 @@ async def end_meeting(
     returns, say a one-sentence goodbye; the session will then close.
     """
     ctx.userdata.end_reason = reason
-    ctx.userdata.ended_at = _now()
+    ctx.userdata.ended_at = datetime.now(timezone.utc)
 
     session = ctx.session
 
