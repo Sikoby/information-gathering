@@ -98,7 +98,7 @@ def now_iso() -> str:
 
 
 def _dump_for_storage(rec: BaseModel, json_string_fields: tuple[str, ...]) -> str:
-    data = json.loads(rec.model_dump_json())
+    data = rec.model_dump(mode="json")
     for f in json_string_fields:
         if data.get(f) is not None:
             data[f] = json.dumps(data[f])

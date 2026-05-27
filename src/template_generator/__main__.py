@@ -122,7 +122,7 @@ async def _post_generate(request: web.Request) -> web.Response:
         result.approved,
         len(result.iterations),
     )
-    return web.json_response(json.loads(response.model_dump_json()))
+    return web.json_response(response.model_dump(mode="json"))
 
 
 async def _get_templates(_request: web.Request) -> web.Response:
@@ -204,7 +204,7 @@ async def _post_extract(request: web.Request) -> web.Response:
         kind,
         len(outline.slides),
     )
-    return web.json_response(json.loads(outline.model_dump_json()))
+    return web.json_response(outline.model_dump(mode="json"))
 
 
 async def _get_healthz(_request: web.Request) -> web.Response:

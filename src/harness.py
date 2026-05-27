@@ -230,13 +230,12 @@ def render_meeting(state: MeetingState) -> str:
     return "\n\n".join(parts)
 
 
-def _kind_glyph(kind: SectionKind) -> str:
-    return {
-        SectionKind.MEETING: "M",
-        SectionKind.TOPIC: "T",
-        SectionKind.QUESTION: "Q",
-        SectionKind.ANSWER: "A",
-    }[kind]
+_KIND_GLYPH = {
+    SectionKind.MEETING: "M",
+    SectionKind.TOPIC: "T",
+    SectionKind.QUESTION: "Q",
+    SectionKind.ANSWER: "A",
+}
 
 
 def _question_summary(state: MeetingState, q: Section) -> str:
@@ -254,7 +253,7 @@ def render_tree_position(state: MeetingState, elapsed_minutes: float) -> str:
         return f"current_section_id={cur_id!r} not in tree"
     chain = path_to(state.sections, cur_id)
     breadcrumb = " › ".join(
-        (f'{_kind_glyph(s.kind)}:{s.id}' if s.id == ROOT_SECTION_ID else f'"{s.header}"')
+        (f'{_KIND_GLYPH[s.kind]}:{s.id}' if s.id == ROOT_SECTION_ID else f'"{s.header}"')
         for s in chain
     )
     depth = len(chain) - 1
