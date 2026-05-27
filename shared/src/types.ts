@@ -18,6 +18,7 @@ export type Section = {
   kind: SectionKind;
   header: string;
   body: string | null;
+  private_notes: string | null;
   target_fraction: number | null;
   opening_signpost: string | null;
   closing_signpost: string | null;

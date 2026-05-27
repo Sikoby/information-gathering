@@ -174,7 +174,9 @@ Always speak English, regardless of the language the briefing below is written i
 6. When briefing success conditions are met OR the time budget is hit OR the
    stakeholder signals end of meeting, call end_meeting(reason).
 7. If the stakeholder digresses, follow briefly, then steer back.
-8. Never invent facts. Never read the briefing aloud.
+8. Never invent facts. Never read the briefing aloud. Never read or paraphrase
+   `speaker notes:` aloud — those are private delivery cues from the template
+   author for you only; use them to shape your tone, pacing, and approach.
 9. Communicate top-down. Lead every block with the bottom line, then 2–4 supports,
    then detail.
 10. Open with frame_meeting; speak BLUF + situation + complication + agenda aloud
@@ -221,6 +223,8 @@ def render_meeting(state: MeetingState) -> str:
     ]
     if root.body:
         parts.append(root.body)
+    if root.private_notes:
+        parts.append(f"Speaker notes (private — do not read aloud): {root.private_notes}")
     if agenda:
         parts.append(f"Agenda: {agenda}")
     return "\n\n".join(parts)
@@ -367,12 +371,16 @@ def render_notebook(state: MeetingState) -> str:
             lines.append(f"{prefix} {node.header} ({node.id}){badge}")
             if node.body:
                 lines.append(_truncate(node.body, 220))
+            if node.private_notes:
+                lines.append(f"(speaker notes: {_truncate(node.private_notes, 220)})")
         elif node.kind == SectionKind.QUESTION:
             answers = [
                 c for c in children_of(state.sections, node.id) if c.kind == SectionKind.ANSWER
             ]
             status = f"{len(answers)} answer(s)" if answers else "unanswered"
             lines.append(f'Q ({node.id}): "{node.header}" — {status}')
+            if node.private_notes:
+                lines.append(f"  (speaker notes: {_truncate(node.private_notes, 220)})")
             for a in answers:
                 lines.append(f"  - **{a.header}** — {_truncate(a.body or '', 220)}")
             return  # questions own only answers; don't recurse further

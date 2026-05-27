@@ -46,6 +46,7 @@ class Section(BaseModel):
     kind: SectionKind = SectionKind.TOPIC
     header: str
     body: str | None = None
+    private_notes: str | None = None
     target_fraction: float | None = Field(default=None, gt=0.0, le=1.0)
     opening_signpost: str | None = None
     closing_signpost: str | None = None

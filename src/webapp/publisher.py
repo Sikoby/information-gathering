@@ -58,7 +58,17 @@ def get_client() -> aioredis.Redis:
 
 
 def _snapshot_json(state: "MeetingState") -> str:
-    return json.dumps(state.model_dump(mode="json"))
+    snapshot = state.model_dump(mode="json")
+    # Speaker notes are private cues for the agent. Redact them before the
+    # viewer (or anyone with browser dev tools) sees the snapshot. Two copies
+    # exist on MeetingState: the working `sections` list and the embedded
+    # `template.sections` it was seeded from.
+    for s in snapshot.get("sections", []):
+        s["private_notes"] = None
+    template = snapshot.get("template") or {}
+    for s in template.get("sections", []):
+        s["private_notes"] = None
+    return json.dumps(snapshot)
 
 
 async def publish(state: "MeetingState") -> None:

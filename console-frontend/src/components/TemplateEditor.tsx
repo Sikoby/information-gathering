@@ -126,6 +126,7 @@ function SectionRow({
       kind,
       header: kind === "question" ? "New question?" : "New topic",
       body: null,
+      private_notes: null,
       target_fraction: null,
       opening_signpost: null,
       closing_signpost: null,
@@ -239,6 +240,23 @@ function SectionRow({
             setField({ body: e.target.value ? e.target.value : null })
           }
         />
+        <div>
+          <label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Speaker notes · hidden from participants
+          </label>
+          <Textarea
+            className="mt-1"
+            rows={2}
+            value={section.private_notes ?? ""}
+            disabled={disabled}
+            placeholder="Speaker notes for the agent — hidden from participants. Tone, things to say or avoid, framing cues."
+            onChange={(e) =>
+              setField({
+                private_notes: e.target.value ? e.target.value : null,
+              })
+            }
+          />
+        </div>
         {isTopLevel && section.kind === "topic" && !isProtected && (
           <div className="flex items-center gap-2">
             <label className="text-xs text-muted-foreground">

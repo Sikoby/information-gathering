@@ -6,6 +6,12 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "python", "scripts/preview_dev_server.py"],
       "port": 8767
+    },
+    {
+      "name": "console-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "-w", "console-frontend"],
+      "port": 5174
     }
   ]
 }

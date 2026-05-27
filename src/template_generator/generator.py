@@ -71,7 +71,17 @@ A Template is a single tree of `Section` nodes. Each Section has:
 - header: human-readable headline. For topics, a short noun phrase; for
   questions, a question (ending in "?").
 - body: optional one or two sentences of context. For "scheduled" top-level
-  topics (phases), put the phase goal here.
+  topics (phases), put the phase goal here. The participant sees `body` in the
+  live meeting viewer, so write it as if speaking to them.
+- private_notes: optional "speaker notes" for the meeting agent — delivery
+  cues the agent reads but the participant never sees (think of the notes
+  panel under a PowerPoint slide). Use for tone, pacing, what to say or
+  avoid, sensitivities, or framing context that should colour how the agent
+  handles the section. Examples: "the stakeholder was burned by a previous
+  vendor — open with curiosity, not capability claims" or "if they deflect
+  on budget, don't push; move to constraints". Optional — leave null when
+  there's nothing speaker-specific to say. Do NOT duplicate body content
+  here; body is the public goal/description, private_notes are delivery cues.
 - target_fraction: only set on top-level TOPICs you want to schedule as
   "phases" (0 < x ≤ 1). The set of scheduled top-level topics is the agenda;
   their target_fractions must sum to approximately 1.0.
@@ -145,6 +155,11 @@ Judge the proposal against:
   implies that the template fails to capture? Name them.
 - NAMING: ids are slash-separated snake_case paths; headers are human-readable
   and not generic ("topic_1") or off-theme.
+- PRIVATE_NOTES (when used): genuine speaker notes — tone/pacing/what-to-say
+  cues for the agent, not visible to the participant. Reject when it
+  duplicates body or restates the obvious. OK to be direct since the
+  participant will never see them. Leaving private_notes null is fine when
+  there's nothing speaker-specific to say.
 
 Severity rubric:
 - blocker — template is structurally invalid or unusable as-is (e.g. ANSWERs
