@@ -16,7 +16,7 @@ console-frontend/
   nginx.conf                serve static + proxy /api + /healthz to console:8770
   src/
     main.tsx                createRoot + <BrowserRouter>
-    App.tsx                 <Routes>: / , /templates/new , /templates/:id , /meetings/:id
+    App.tsx                 <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/:id
     types.ts                TemplateRecord + MeetingRecord — keep in sync with src/console/models.py
     lib/
       api.ts                fetch wrappers for /api/*
@@ -29,6 +29,7 @@ console-frontend/
       useMeeting.ts         one meeting, polls 3s only while running
     pages/
       Dashboard.tsx         two stacked sections: Templates (top) + Meetings (Running/Done)
+      Welcome.tsx             one-screen onboarding shown on first visit per tab
       NewTemplate.tsx       the prompt form + optional .pptx/.pdf upload
       TemplateDetail.tsx    generating spinner / failed / editor + "Start meeting" modal
       MeetingDetail.tsx     slim live/done view with "open source template" link
@@ -53,6 +54,7 @@ Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come 
 - Polling, not SSE. `useTemplate` polls only while `template_status === "generating"`, `useMeeting` only while `status === "running"` — so polling never clobbers in-progress template edits in `TemplateDetail`.
 - `TemplateDetail` holds a local `draft` re-initialised when `template_id`/`generation_seq`/`template_status` changes (see the `draftKey` effect).
 - `types.ts` mirrors `src/console/models.py` — keep them in sync.
+- First visit per tab is redirected from `/` to `/welcome`; `sessionStorage['welcome:dismissed']` clears the redirect for the rest of that tab session.
 
 ## Design conventions
 

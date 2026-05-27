@@ -12,3 +12,4 @@ dist/
 .vscode/
 node_modules/
 frontend/dist/
+.claude/worktrees/
