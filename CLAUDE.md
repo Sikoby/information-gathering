@@ -4,7 +4,7 @@
 
 ## What this is
 
-A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, a kinded `Section` tree with the agent's findings, a typed transition log, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a meeting from a prompt — generate and edit its template, start it, and track its lifecycle.
+A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, a kinded `Section` tree with the agent's findings, a typed transition log, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a meeting from a prompt — or from an uploaded `.pptx`/`.pdf` (slides become topics, speaker notes become the agent's script) — and then generate and edit its template, start it, and track its lifecycle.
 
 ## Services
 
@@ -92,7 +92,7 @@ The `template-generator` service runs an LLM **implementation + critique loop** 
 
 ```
 console  (or scripts/generate_template.py)
-        │ HTTP POST /generate
+        │ HTTP POST /generate          (+ optional document_outline)
         ▼
   template-generator container
         │ OpenAI Responses API: propose Template → critique → revise → ...
@@ -101,6 +101,20 @@ console  (or scripts/generate_template.py)
 ```
 
 The console calls this when a user creates a meeting, then lets the user edit the result. The agent receives the final (possibly edited) template **inline** through the dispatch metadata — it is **not** registered in the agent's hardcoded `TEMPLATES` dict (that dict still holds only the four built-in templates, used for CLI briefings that carry no custom template).
+
+### Document-driven creation (presentation mode)
+
+When the user uploads a `.pptx` or `.pdf` via the console, the flow is:
+
+```
+browser ─▶ console-frontend ─▶ console POST /api/meetings/upload  (multipart)
+                                  │ forwards the file to template-generator POST /extract
+                                  ◀ DocumentOutline {kind, slides[{title, content, speaker_notes}]}
+                                  │ persists outline on meeting:<id>
+                                  └ spawns generation, passing document_outline through to POST /generate
+```
+
+In "presentation mode" the implementation/critique loop emits **one TOPIC per slide** (slide order preserved), copies each slide's `speaker_notes` **verbatim** into `private_notes`, and wraps the walkthrough in framing phases (rapport, Q&A, wrap). A "polluted" slide may be split into a parent + 2-3 child TOPICs. The stored outline lets `regenerate` work without re-uploading.
 
 ## Running locally
 

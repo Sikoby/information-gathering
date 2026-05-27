@@ -30,6 +30,30 @@ export function createMeeting(body: {
   return req("/api/meetings", { method: "POST", body: JSON.stringify(body) });
 }
 
+export async function createMeetingFromDocument(
+  body: {
+    title: string;
+    prompt: string;
+    reference_template: string | null;
+    target_minutes: number;
+  },
+  file: File,
+): Promise<MeetingRecord> {
+  const form = new FormData();
+  form.append("title", body.title);
+  form.append("prompt", body.prompt);
+  if (body.reference_template) form.append("reference_template", body.reference_template);
+  form.append("target_minutes", String(body.target_minutes));
+  form.append("file", file, file.name);
+
+  const res = await fetch("/api/meetings/upload", { method: "POST", body: form });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as MeetingRecord;
+}
+
 export function patchMeeting(
   id: string,
   body: Partial<{

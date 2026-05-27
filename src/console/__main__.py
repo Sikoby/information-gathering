@@ -44,8 +44,10 @@ async def _on_cleanup(app: web.Application) -> None:
 
 
 def build_app() -> web.Application:
-    app = web.Application(client_max_size=1024 * 1024)
+    # 50 MB ceiling — accommodates PPTX uploads on /api/meetings/upload.
+    app = web.Application(client_max_size=50 * 1024 * 1024)
     app.router.add_post("/api/meetings", handlers.post_meetings)
+    app.router.add_post("/api/meetings/upload", handlers.post_meetings_upload)
     app.router.add_get("/api/meetings", handlers.get_meetings)
     app.router.add_get("/api/meetings/{meeting_id}", handlers.get_meeting)
     app.router.add_patch("/api/meetings/{meeting_id}", handlers.patch_meeting)

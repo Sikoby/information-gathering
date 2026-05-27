@@ -33,20 +33,23 @@ src/console/
 | Route | Behavior |
 | --- | --- |
 | `POST /api/meetings` | Body `MeetingCreate`. Creates a `planned` record, spawns the generation task, returns `201` immediately. |
+| `POST /api/meetings/upload` | Multipart: `file` (.pptx/.pdf) + `title`, `prompt`, `reference_template?`, `target_minutes?`. Forwards the file to template-generator's `/extract`, stores the resulting `DocumentOutline` on the record (`document_outline`/`document_filename`/`document_kind`), then spawns generation in presentation mode. `201`. `502` if extraction fails. |
 | `GET /api/meetings` | `{meetings: [...]}`, newest first. |
 | `GET /api/meetings/{id}` | The poll endpoint. `200` / `404`. |
 | `PATCH /api/meetings/{id}` | Edit title / prompt / template / target_minutes. `409` unless `planned`; `400` on an invalid template. |
 | `POST /api/meetings/{id}/start` | Calls dispatch; `200` running. `409` unless `planned`; `424` if the template is not `ready`; `502` if dispatch fails. |
-| `POST /api/meetings/{id}/regenerate` | Bumps `generation_seq`, re-runs generation. `202`. |
+| `POST /api/meetings/{id}/regenerate` | Bumps `generation_seq`, re-runs generation (the stored `document_outline` is passed through, so document-driven regenerations don't need re-upload). `202`. |
 | `DELETE /api/meetings/{id}` | `204`. `409` if `running`. |
 | `GET /api/reference-templates` | The four built-in templates, for the create form. |
 | `GET /healthz` | `200` iff Redis ping succeeds. |
+
+`client_max_size` is **50 MB** so PPTX uploads pass through.
 
 ## Redis keys
 
 | Key | Type | Notes |
 | --- | --- | --- |
-| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord`. `template` is stored as an embedded JSON *string* so the Lua merge never round-trips its nested arrays through cjson. |
+| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord`. `template` is stored as an embedded JSON *string* so the Lua merge never round-trips its nested arrays through cjson. When the meeting was created via `/upload`, the record also carries `document_filename`, `document_kind` (`pptx`\|`pdf`) and `document_outline` (the extracted slides). |
 | `meetings:index` | sorted set | member=`meeting_id`, score=created epoch. |
 | `console:reconcile:leader` | string | short-TTL leader lock. |
 

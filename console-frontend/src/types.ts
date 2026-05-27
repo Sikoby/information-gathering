@@ -17,6 +17,21 @@ export {
 export type MeetingStatus = "planned" | "running" | "done";
 export type TemplateStatus = "generating" | "ready" | "failed";
 
+export type DocumentKind = "pptx" | "pdf";
+
+export type SlideOutline = {
+  index: number;
+  title: string | null;
+  content: string;
+  speaker_notes: string | null;
+};
+
+export type DocumentOutline = {
+  source_name: string;
+  kind: DocumentKind;
+  slides: SlideOutline[];
+};
+
 /** Mirrors src/console/models.py MeetingRecord. Keep in sync. */
 export type MeetingRecord = {
   meeting_id: string;
@@ -40,6 +55,9 @@ export type MeetingRecord = {
   dispatched_at: string | null;
   ended_at: string | null;
   end_reason: string | null;
+  document_filename: string | null;
+  document_kind: DocumentKind | null;
+  document_outline: DocumentOutline | null;
 };
 
 export type ReferenceTemplate = {

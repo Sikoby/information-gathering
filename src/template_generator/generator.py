@@ -21,6 +21,7 @@ from openai import OpenAI
 from ..templates import TEMPLATES, Template
 from .schemas import (
     CritiqueResult,
+    DocumentOutline,
     GenerateRequest,
     GenerationIteration,
 )
@@ -49,8 +50,54 @@ def _resolve_reference(name: str | None) -> Template | None:
     return template
 
 
-def _propose_system_prompt() -> str:
-    return """\
+_PRESENTATION_GUIDANCE = """\
+
+PRESENTATION MODE (a document was uploaded):
+
+The user has attached a presentation document (slides or pages) — the meeting
+is the agent presenting that document to the participant. Treat the document
+as the SPINE of the template:
+
+- The presentation itself is ONE scheduled top-level TOPIC (a phase). Give it
+  a header like "Walk through <document_name>" and the largest target_fraction
+  (typically 0.6-0.8).
+- Inside that phase, emit ONE child TOPIC per slide, IN ORDER. Slide order is
+  load-bearing — preserve it.
+- For each slide-topic:
+    - header: the slide title (or a concise paraphrase if the title is missing).
+    - body: a one-or-two-sentence public framing of what the agent will say
+      about this slide. The participant SEES this. Do not paste raw slide bullets.
+    - private_notes: COPY THE SPEAKER NOTES VERBATIM when present. These are
+      the agent's script for the slide; they must survive intact (light cleanup
+      of typos/whitespace is fine, but do not rewrite or summarise). If the
+      slide has no notes, write a short delivery cue yourself (or leave null).
+- When a slide is "polluted" — covers several genuinely distinct aspects — you
+  MAY split it: emit one parent TOPIC for the slide and 2-3 child TOPICs for
+  the aspects. Use this sparingly; default to one topic per slide.
+- DO NOT invent slides that aren't in the document. DO NOT skip slides without
+  reason.
+
+Around the presentation phase, add framing phases the meeting needs:
+- An opening rapport / context-setting phase (target_fraction ~0.1).
+- A Q&A or discussion phase AFTER the walkthrough (target_fraction ~0.15-0.25)
+  with 2-4 QUESTIONs the agent should pull from the participant (their reactions,
+  concerns, decisions to make). Use the user's prompt to shape these.
+- A short wrap phase confirming next steps when the meeting type warrants it.
+
+Slide-topics generally do NOT need child QUESTIONs of their own — the speaker
+notes ARE the script. Add a child QUESTION only when the slide explicitly asks
+for the participant's input.
+"""
+
+
+def _propose_system_prompt(has_document: bool = False) -> str:
+    base = _PROPOSE_BASE_PROMPT
+    if has_document:
+        return base + _PRESENTATION_GUIDANCE
+    return base
+
+
+_PROPOSE_BASE_PROMPT = """\
 You design meeting templates for a briefing-driven voice meeting agent. The
 agent uses the template to (a) pace the conversation through "phases" and
 (b) drive through topics + questions whose answers are recorded at runtime.
@@ -119,8 +166,33 @@ Return ONLY the Template; do not narrate.
 """
 
 
-def _critique_system_prompt() -> str:
-    return """\
+_CRITIQUE_PRESENTATION_PARAGRAPH = """\
+
+PRESENTATION MODE addenda (when an uploaded document outline is shown above):
+
+- There MUST be a scheduled walkthrough phase containing one child TOPIC per
+  slide, in slide order. Missing slides, reordered slides, or invented slides
+  are blockers.
+- Each slide-topic MUST have its speaker_notes (if any) preserved verbatim in
+  private_notes. Paraphrasing or summarising the speaker notes is a blocker —
+  the agent literally reads these out.
+- Slide bodies should be a SHORT public framing, not a paste of the slide
+  bullets. If `body` looks like a verbatim bullet dump, mark it as major.
+- Splitting a single slide into a parent + 2-3 child TOPICs is allowed when
+  the slide covered genuinely distinct aspects. Splitting a clearly atomic
+  slide is minor noise.
+- A discussion / Q&A phase should follow the walkthrough.
+"""
+
+
+def _critique_system_prompt(has_document: bool = False) -> str:
+    base = _CRITIQUE_BASE_PROMPT
+    if has_document:
+        return base + _CRITIQUE_PRESENTATION_PARAGRAPH
+    return base
+
+
+_CRITIQUE_BASE_PROMPT = """\
 You are a strict reviewer of meeting templates produced for a briefing-driven
 voice meeting agent. You will receive (a) the user's description of the
 meeting, (b) a proposed Template (a Section tree), and optionally (c) a
@@ -191,6 +263,30 @@ def _format_reference_block(reference: Template | None) -> str:
     )
 
 
+def _format_document_block(document: DocumentOutline | None) -> str:
+    if document is None:
+        return ""
+    lines = [
+        "Uploaded document outline — PRESENTATION MODE applies:",
+        f"  source: {document.source_name} ({document.kind}, {len(document.slides)} slides)",
+        "",
+    ]
+    for slide in document.slides:
+        lines.append(f"--- slide {slide.index} ---")
+        if slide.title:
+            lines.append(f"title: {slide.title}")
+        if slide.content:
+            lines.append("content:")
+            for body_line in slide.content.splitlines():
+                lines.append(f"  {body_line}")
+        if slide.speaker_notes:
+            lines.append("speaker_notes (COPY VERBATIM into private_notes):")
+            for note_line in slide.speaker_notes.splitlines():
+                lines.append(f"  {note_line}")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 def _format_previous_block(
     previous_template: Template | None,
     previous_critique: CritiqueResult | None,
@@ -219,6 +315,9 @@ def _build_propose_user_message(
         "",
         _format_reference_block(reference),
     ]
+    doc_block = _format_document_block(request.document_outline)
+    if doc_block:
+        parts.append(doc_block)
     if request.name_hint:
         parts.append(
             f"Naming hint (the user suggests `{request.name_hint}` as the "
@@ -240,6 +339,11 @@ def _build_critique_user_message(
         request.description.strip(),
         "",
         _format_reference_block(reference),
+    ]
+    doc_block = _format_document_block(request.document_outline)
+    if doc_block:
+        parts.append(doc_block)
+    parts += [
         "Proposed template:",
         f"```json\n{proposed.model_dump_json(indent=2)}\n```",
     ]
@@ -257,7 +361,12 @@ def _propose_sync(
     resp = client.responses.parse(
         model=model,
         input=[
-            {"role": "system", "content": _propose_system_prompt()},
+            {
+                "role": "system",
+                "content": _propose_system_prompt(
+                    has_document=request.document_outline is not None
+                ),
+            },
             {
                 "role": "user",
                 "content": _build_propose_user_message(
@@ -283,7 +392,12 @@ def _critique_sync(
     resp = client.responses.parse(
         model=model,
         input=[
-            {"role": "system", "content": _critique_system_prompt()},
+            {
+                "role": "system",
+                "content": _critique_system_prompt(
+                    has_document=request.document_outline is not None
+                ),
+            },
             {
                 "role": "user",
                 "content": _build_critique_user_message(request, reference, proposed),

@@ -34,14 +34,42 @@ async def generate_template(
     description: str,
     reference_template: str | None,
     max_iterations: int,
+    document_outline: dict | None = None,
 ) -> dict:
     """Call template-generator `POST /generate`. Blocks 1-4 min."""
     payload: dict = {"description": description, "max_iterations": max_iterations}
     if reference_template:
         payload["reference_template"] = reference_template
+    if document_outline is not None:
+        payload["document_outline"] = document_outline
     timeout = aiohttp.ClientTimeout(total=420)
     async with session.post(
         f"{_template_gen_url()}/generate", json=payload, timeout=timeout
+    ) as resp:
+        body = await resp.text()
+        if resp.status != 200:
+            raise DownstreamError("template-generator", resp.status, body)
+        return json.loads(body)
+
+
+async def extract_document(
+    session: aiohttp.ClientSession,
+    *,
+    filename: str,
+    content_type: str,
+    data: bytes,
+) -> dict:
+    """Call template-generator `POST /extract`. Returns a DocumentOutline."""
+    form = aiohttp.FormData()
+    form.add_field(
+        "file",
+        data,
+        filename=filename,
+        content_type=content_type or "application/octet-stream",
+    )
+    timeout = aiohttp.ClientTimeout(total=60)
+    async with session.post(
+        f"{_template_gen_url()}/extract", data=form, timeout=timeout
     ) as resp:
         body = await resp.text()
         if resp.status != 200:

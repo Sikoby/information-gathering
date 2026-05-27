@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Loader2 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Button, Textarea } from "@ig/ui";
+import { FileText, Loader2 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, Textarea } from "@ig/ui";
 import { useMeeting } from "@/hooks/useMeeting";
 import {
   deleteMeeting,
@@ -131,6 +131,13 @@ export function MeetingDetail() {
         <StatusBadge status={meeting.status} />
       </div>
 
+      {meeting.document_filename && (
+        <DocumentBadge
+          filename={meeting.document_filename}
+          slides={meeting.document_outline?.slides.length ?? null}
+        />
+      )}
+
       {actionError && (
         <p className="mt-3 text-sm text-destructive">{actionError}</p>
       )}
@@ -171,6 +178,26 @@ export function MeetingDetail() {
           busy={busy}
           onDelete={meeting.status === "done" ? onDelete : undefined}
         />
+      )}
+    </div>
+  );
+}
+
+function DocumentBadge({
+  filename,
+  slides,
+}: {
+  filename: string;
+  slides: number | null;
+}) {
+  return (
+    <div className="mt-3 inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs text-muted-foreground">
+      <FileText className="h-3.5 w-3.5" />
+      <span className="font-medium text-foreground">{filename}</span>
+      {slides !== null && (
+        <Badge variant="outline" className="text-[10px]">
+          {slides} slide{slides === 1 ? "" : "s"}
+        </Badge>
       )}
     </div>
   );

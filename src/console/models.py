@@ -36,6 +36,10 @@ class MeetingRecord(BaseModel):
     template_iterations_used: int | None = None
     generation_seq: int = 0
 
+    document_filename: str | None = None
+    document_kind: Literal["pptx", "pdf"] | None = None
+    document_outline: dict | None = None
+
     run_id: str | None = None
     room: str | None = None
     join_url: str | None = None

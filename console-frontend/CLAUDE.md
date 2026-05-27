@@ -27,11 +27,13 @@ console-frontend/
       useMeeting.ts         one meeting, polls 3s only while generating/running
     pages/
       Dashboard.tsx         meetings grouped Planned / Running / Done
-      NewMeeting.tsx        the prompt form
+      NewMeeting.tsx        the prompt form + optional .pptx/.pdf upload
       MeetingDetail.tsx     generating spinner / failed / editor / running / done
     components/
       MeetingCard.tsx, StatusBadge.tsx, TemplateEditor.tsx
 ```
+
+When `NewMeeting` includes a file, the form submits multipart to `/api/meetings/upload`; otherwise it stays on the JSON path. `MeetingDetail` shows a small chip with the document filename + slide count when one was attached.
 
 Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come from `@ig/ui` — do not copy shadcn components in here; add them to [`../shared/`](../shared/).
 
