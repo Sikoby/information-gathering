@@ -1,8 +1,16 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { FileText, Upload, X } from "lucide-react";
 import { Button, Input, Textarea } from "@ig/ui";
-import { createMeeting, listReferenceTemplates } from "@/lib/api";
+import {
+  createMeeting,
+  createMeetingFromDocument,
+  listReferenceTemplates,
+} from "@/lib/api";
 import type { ReferenceTemplate } from "@/types";
+
+const ACCEPTED_EXT = /\.(pptx|pdf)$/i;
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export function NewMeeting() {
   const navigate = useNavigate();
@@ -13,6 +21,8 @@ export function NewMeeting() {
   const [references, setReferences] = useState<ReferenceTemplate[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listReferenceTemplates()
@@ -22,18 +32,42 @@ export function NewMeeting() {
 
   const valid = title.trim().length > 0 && prompt.trim().length > 0;
 
+  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setError(null);
+    const f = e.target.files?.[0] ?? null;
+    if (f && !ACCEPTED_EXT.test(f.name)) {
+      setError("Only .pptx and .pdf files are supported.");
+      e.target.value = "";
+      return;
+    }
+    if (f && f.size > MAX_UPLOAD_BYTES) {
+      setError(`File is larger than 50 MB (${Math.round(f.size / 1024 / 1024)} MB).`);
+      e.target.value = "";
+      return;
+    }
+    setFile(f);
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!valid) return;
     setSubmitting(true);
     setError(null);
     try {
-      const rec = await createMeeting({
+      const body = {
         title: title.trim(),
         prompt: prompt.trim(),
         reference_template: reference || null,
         target_minutes: targetMinutes,
-      });
+      };
+      const rec = file
+        ? await createMeetingFromDocument(body, file)
+        : await createMeeting(body);
       navigate(`/meetings/${rec.meeting_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -75,11 +109,61 @@ export function NewMeeting() {
             value={prompt}
             maxLength={16000}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="A design review with the platform team to walk through the proposed architecture, surface risks, and assign follow-ups…"
+            placeholder={
+              file
+                ? "Who you'll present this to, what outcome you want. The slides drive the structure; this gives the agent context around them."
+                : "A design review with the platform team to walk through the proposed architecture, surface risks, and assign follow-ups…"
+            }
           />
           <p className="mt-1 text-right text-xs text-muted-foreground">
             {prompt.length} / 16000
           </p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">
+            Presentation document (optional)
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Upload a .pptx or .pdf to drive the meeting. Each slide becomes a
+            topic; speaker notes pre-populate so the agent can read them during
+            the meeting.
+          </p>
+          {file ? (
+            <div className="mt-2 flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm">
+              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate" title={file.name}>
+                {file.name}
+              </span>
+              <span className="ml-auto text-xs text-muted-foreground">
+                {(file.size / 1024 / 1024).toFixed(1)} MB
+              </span>
+              <button
+                type="button"
+                onClick={clearFile}
+                aria-label="Remove file"
+                className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <label
+              htmlFor="meeting-document"
+              className="mt-2 flex cursor-pointer items-center gap-2 rounded-md border border-dashed bg-card px-3 py-3 text-sm text-muted-foreground hover:bg-secondary"
+            >
+              <Upload className="h-4 w-4" />
+              <span>Choose a .pptx or .pdf…</span>
+            </label>
+          )}
+          <input
+            id="meeting-document"
+            ref={fileInputRef}
+            type="file"
+            accept=".pptx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            className="hidden"
+            onChange={onFileChange}
+          />
         </div>
 
         <div className="flex flex-wrap gap-4">
@@ -116,7 +200,13 @@ export function NewMeeting() {
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" disabled={!valid || submitting}>
-          {submitting ? "Creating…" : "Create & generate template"}
+          {submitting
+            ? file
+              ? "Uploading & generating…"
+              : "Creating…"
+            : file
+              ? "Create from document"
+              : "Create & generate template"}
         </Button>
       </form>
     </div>

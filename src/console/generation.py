@@ -38,6 +38,7 @@ async def _run(session: aiohttp.ClientSession, meeting_id: str, seq: int) -> Non
             description=f"{rec.title}\n\n{rec.prompt}",
             reference_template=rec.reference_template,
             max_iterations=max_iter,
+            document_outline=rec.document_outline,
         )
     except Exception as e:  # noqa: BLE001 - any failure marks the record failed
         logger.exception("generation failed meeting_id={}", meeting_id)

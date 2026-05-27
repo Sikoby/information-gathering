@@ -75,6 +75,31 @@ class GenerationIteration(BaseModel):
     critique: CritiqueResult
 
 
+class SlideOutline(BaseModel):
+    """One slide / page extracted from an uploaded document."""
+
+    index: int = Field(ge=1, description="1-based position in the document.")
+    title: str | None = Field(
+        default=None, description="Slide title, or first line for PDFs."
+    )
+    content: str = Field(
+        default="",
+        description="Body text — bullets, paragraphs, whatever was on the slide.",
+    )
+    speaker_notes: str | None = Field(
+        default=None,
+        description="Speaker notes (PPTX only). Become `private_notes` on the topic.",
+    )
+
+
+class DocumentOutline(BaseModel):
+    """Structured extraction of an uploaded .pptx / .pdf file."""
+
+    source_name: str = Field(description="Original filename, for display.")
+    kind: Literal["pptx", "pdf"]
+    slides: list[SlideOutline]
+
+
 class GenerateRequest(BaseModel):
     """POST /generate body."""
 
@@ -87,6 +112,14 @@ class GenerateRequest(BaseModel):
         description=(
             "Optional name of an existing template to use as a structural "
             "reference. Must be one of the names in `templates.TEMPLATES`."
+        ),
+    )
+    document_outline: DocumentOutline | None = Field(
+        default=None,
+        description=(
+            "Optional structured extraction of an uploaded .pptx/.pdf. When "
+            "present, the generator builds a presentation-driven template "
+            "(one TOPIC per slide; speaker_notes become private_notes)."
         ),
     )
     max_iterations: int = Field(default=3, ge=1, le=8)

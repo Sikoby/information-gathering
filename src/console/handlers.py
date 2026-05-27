@@ -77,6 +77,119 @@ async def post_meetings(request: web.Request) -> web.Response:
     return web.json_response(_record_json(rec), status=201)
 
 
+async def post_meetings_upload(request: web.Request) -> web.Response:
+    """Multipart create: file + form fields. Extracts the document, then
+    creates a meeting record with `document_outline` attached and spawns
+    generation. Same response shape as `POST /api/meetings` (the created
+    `MeetingRecord` JSON, 201)."""
+    if not request.content_type.startswith("multipart/"):
+        return web.json_response(
+            {"error": "expected multipart/form-data"}, status=415
+        )
+
+    reader = await request.multipart()
+    fields: dict[str, str] = {}
+    file_bytes: bytes | None = None
+    file_name: str | None = None
+    file_content_type: str | None = None
+
+    while True:
+        part = await reader.next()
+        if part is None:
+            break
+        if part.name == "file":
+            file_name = part.filename or "upload"
+            file_content_type = part.headers.get("Content-Type")
+            file_bytes = await part.read(decode=False)
+        elif part.name in {"title", "prompt", "reference_template", "target_minutes"}:
+            fields[part.name] = (await part.read(decode=True)).decode("utf-8")
+
+    if file_bytes is None or file_name is None:
+        return web.json_response({"error": "missing 'file' part"}, status=400)
+    kind = _detect_kind(file_name, file_content_type)
+    if kind is None:
+        return web.json_response(
+            {"error": f"unsupported file type: {file_name!r} (need .pptx or .pdf)"},
+            status=415,
+        )
+
+    create_body: dict = {
+        "title": fields.get("title", "").strip(),
+        "prompt": fields.get("prompt", "").strip(),
+    }
+    if fields.get("reference_template"):
+        create_body["reference_template"] = fields["reference_template"]
+    if fields.get("target_minutes"):
+        try:
+            create_body["target_minutes"] = int(fields["target_minutes"])
+        except ValueError:
+            return web.json_response(
+                {"error": "target_minutes must be an integer"}, status=400
+            )
+
+    try:
+        payload = MeetingCreate.model_validate(create_body)
+    except ValidationError as e:
+        return _validation_error(e)
+
+    if payload.reference_template and payload.reference_template not in TEMPLATES:
+        return web.json_response(
+            {"error": f"unknown reference_template; known: {sorted(TEMPLATES)}"},
+            status=400,
+        )
+
+    try:
+        outline = await clients.extract_document(
+            request.app["http_session"],
+            filename=file_name,
+            content_type=file_content_type or "",
+            data=file_bytes,
+        )
+    except Exception as e:  # noqa: BLE001 - surface as 502
+        logger.exception("extract failed filename={}", file_name)
+        return web.json_response(
+            {"error": f"failed to extract document: {e}"}, status=502
+        )
+
+    meeting_id = registry.new_meeting_id()
+    now = registry.now_iso()
+    rec = MeetingRecord(
+        meeting_id=meeting_id,
+        title=payload.title,
+        prompt=payload.prompt,
+        reference_template=payload.reference_template,
+        target_minutes=payload.target_minutes,
+        status="planned",
+        template_status="generating",
+        run_id=meeting_id,
+        created_at=now,
+        updated_at=now,
+        document_filename=file_name,
+        document_kind=kind,
+        document_outline=outline,
+    )
+    await registry.create(rec)
+    generation.spawn(request.app["http_session"], meeting_id, rec.generation_seq)
+    logger.info(
+        "created meeting_id={} from document={} ({} slides)",
+        meeting_id,
+        file_name,
+        len(outline.get("slides", [])),
+    )
+    return web.json_response(_record_json(rec), status=201)
+
+
+def _detect_kind(filename: str, content_type: str | None) -> str | None:
+    name = filename.lower()
+    if name.endswith(".pptx") or content_type == (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    ):
+        return "pptx"
+    if name.endswith(".pdf") or content_type == "application/pdf":
+        return "pdf"
+    return None
+
+
 async def get_meetings(_request: web.Request) -> web.Response:
     recs = await registry.list_all()
     return web.json_response({"meetings": [_record_json(r) for r in recs]})

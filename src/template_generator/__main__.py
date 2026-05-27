@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from loguru import logger
 from pydantic import ValidationError
 
+from . import document_parser
 from .generator import (
     DEFAULT_CRITIQUE_MODEL,
     DEFAULT_IMPL_MODEL,
@@ -38,6 +39,9 @@ from .schemas import (
     GenerateResponse,
     GenerationIteration,
 )
+
+
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB — comfortably fits big PPTX decks.
 
 
 _DEFAULT_TEMPLATES_DIR = Path("/app/templates_generated")
@@ -161,6 +165,48 @@ async def _get_template_by_id(request: web.Request) -> web.Response:
     )
 
 
+async def _post_extract(request: web.Request) -> web.Response:
+    """Multipart: a single `file` part. Returns the extracted `DocumentOutline`."""
+    if not request.content_type.startswith("multipart/"):
+        return web.json_response(
+            {"error": "expected multipart/form-data"}, status=415
+        )
+    reader = await request.multipart()
+    field = await reader.next()
+    while field is not None and field.name != "file":
+        field = await reader.next()
+    if field is None:
+        return web.json_response({"error": "missing 'file' part"}, status=400)
+
+    filename = field.filename or "upload"
+    kind = document_parser.detect_kind(filename, field.headers.get("Content-Type"))
+    if kind is None:
+        return web.json_response(
+            {"error": f"unsupported file type: {filename!r} (need .pptx or .pdf)"},
+            status=415,
+        )
+
+    data = await field.read(decode=False)
+    if not data:
+        return web.json_response({"error": "uploaded file is empty"}, status=400)
+
+    try:
+        outline = document_parser.parse(filename, kind, data)
+    except Exception as e:  # noqa: BLE001 - report parser failures to caller
+        logger.exception("document parse failed filename={}", filename)
+        return web.json_response(
+            {"error": f"failed to parse {filename}: {e}"}, status=400
+        )
+
+    logger.info(
+        "extracted document filename={} kind={} slides={}",
+        filename,
+        kind,
+        len(outline.slides),
+    )
+    return web.json_response(json.loads(outline.model_dump_json()))
+
+
 async def _get_healthz(_request: web.Request) -> web.Response:
     if not os.environ.get("OPENAI_API_KEY"):
         return web.Response(status=503, text="missing env var: OPENAI_API_KEY")
@@ -173,8 +219,9 @@ async def _get_healthz(_request: web.Request) -> web.Response:
 
 
 def build_app() -> web.Application:
-    app = web.Application(client_max_size=1024 * 1024)
+    app = web.Application(client_max_size=_MAX_UPLOAD_BYTES)
     app.router.add_post("/generate", _post_generate)
+    app.router.add_post("/extract", _post_extract)
     app.router.add_get("/templates", _get_templates)
     app.router.add_get("/templates/{template_id}", _get_template_by_id)
     app.router.add_get("/healthz", _get_healthz)

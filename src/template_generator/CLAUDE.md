@@ -12,19 +12,21 @@ This service is **independent of the agent and dispatch path**. The [`console`](
 
 ```
 src/template_generator/
-  __init__.py     module marker, doc only.
-  __main__.py     aiohttp app + handlers + persistence.
-  generator.py    the impl+critique loop, OpenAI calls, prompt construction.
-  schemas.py      Pydantic request/response/critique models.
+  __init__.py          module marker, doc only.
+  __main__.py          aiohttp app + handlers + persistence.
+  generator.py         the impl+critique loop, OpenAI calls, prompt construction.
+  document_parser.py   .pptx + .pdf → DocumentOutline (title/body/speaker_notes per slide).
+  schemas.py           Pydantic request/response/critique models + DocumentOutline.
 ```
 
-The compose service shares the agent's [Dockerfile.python](../../Dockerfile.python) (different command, same image). No extra deps beyond what `pyproject.toml` already pulls in (`openai`, `pydantic`, `aiohttp`, `loguru`, `python-dotenv`).
+The compose service shares the agent's [Dockerfile.python](../../Dockerfile.python) (different command, same image). Adds `python-pptx` + `pypdf` to `pyproject.toml` for the document parser; everything else (`openai`, `pydantic`, `aiohttp`, `loguru`, `python-dotenv`) was already there.
 
 ## Endpoints
 
 | Route | Behavior |
 | --- | --- |
-| `POST /generate` | Body `{description, reference_template?, max_iterations?, name_hint?}`. Runs the loop, persists, returns `{template_id, storage_path, approved, iterations_used, template, iterations}`. |
+| `POST /generate` | Body `{description, reference_template?, document_outline?, max_iterations?, name_hint?}`. Runs the loop, persists, returns `{template_id, storage_path, approved, iterations_used, template, iterations}`. |
+| `POST /extract` | Multipart with a `file` part (.pptx / .pdf). Returns a `DocumentOutline` JSON: `{source_name, kind, slides: [{index, title, content, speaker_notes}]}`. Synchronous, no persistence. |
 | `GET /templates` | Returns `{templates: [template_id...]}` from disk. |
 | `GET /templates/{template_id}` | Returns `{template_id, storage_path, request, template, iterations}` for a previously generated template. |
 | `GET /healthz` | 200 iff `OPENAI_API_KEY` is set and `TEMPLATES_DIR` is writable; 503 otherwise. |
@@ -33,8 +35,17 @@ The compose service shares the agent's [Dockerfile.python](../../Dockerfile.pyth
 
 - `description` (required): the user's free-form meeting description.
 - `reference_template` (optional): a name from [`TEMPLATES`](../templates/__init__.py) — currently one of `requirements`, `research`, `eval`, `generic`. Unknown names return 400. The reference is rendered into the implementation system prompt as structural inspiration; it is **not** copied verbatim.
+- `document_outline` (optional): a `DocumentOutline` previously returned by `POST /extract`. When present, the propose and critique system prompts switch on **presentation mode**: the agent emits one TOPIC per slide (in order), copies `speaker_notes` verbatim into `private_notes`, and wraps the walkthrough in framing phases (rapport, Q&A, wrap). A slide may be split into a parent + 2-3 child TOPICs when it covers multiple aspects.
 - `max_iterations` (optional, default 3, max 8): hard cap on (propose, critique) cycles. The loop exits early when `critique.approved=true`.
 - `name_hint` (optional): suggests a snake_case template id; the implementation agent may override if it has a better idea.
+
+### `POST /extract` semantics
+
+- Multipart upload, single `file` part. `.pptx` and `.pdf` are accepted (detected by extension or `Content-Type`).
+- Slide cap: the first 80 slides are returned; longer documents are truncated.
+- PDFs have no real "speaker notes" — the first line of each page is treated as the title, the rest as `content`, `speaker_notes` is `null`.
+- Failures (unparseable file, wrong MIME) return 400/415 with an error message; the caller is expected to surface it to the user.
+- `client_max_size` is 50 MB. Bigger uploads are rejected by aiohttp.
 
 The response includes the **full iteration history** so callers can inspect the critique trail. Even when `approved=false` after the cap, a best-effort template is returned (the final iteration).
 
@@ -94,6 +105,10 @@ curl -s -X POST http://localhost:8768/generate \
        "reference_template": "requirements",
        "max_iterations": 3
      }' | jq '.template_id, .approved, .iterations_used'
+
+# Extract an uploaded deck (presentation mode):
+curl -s -X POST http://localhost:8768/extract \
+     -F "file=@deck.pptx" | jq '.kind, (.slides | length)'
 ```
 
 Or use the CLI: `uv run python scripts/generate_template.py --description "..." --reference requirements`.
