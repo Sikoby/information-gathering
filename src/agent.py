@@ -26,6 +26,7 @@ from livekit.agents.llm import ChatMessage
 from livekit.plugins import openai as oai_plugin, silero
 from loguru import logger
 from openai.types import realtime as openai_realtime
+from openai.types.realtime.realtime_audio_input_turn_detection import ServerVad
 
 from .avatar import OrbAvatarSession
 from .briefing_plan import select_template
@@ -134,6 +135,20 @@ async def entrypoint(ctx: JobContext) -> None:
         voice="cedar",
         input_audio_transcription=openai_realtime.AudioTranscription(
             model="gpt-4o-mini-transcribe",
+        ),
+        # End the user's turn a fixed 600ms after they stop speaking. The
+        # plugin default is semantic_vad (eagerness="medium") — a model-based
+        # "have you finished your thought?" judgment that stalled 30-50s on
+        # short/ambiguous utterances. server_vad is silence-based and prompt.
+        # The session defers to this server-side detection (the local silero
+        # VAD is only used for interruptions), so this is the knob that matters.
+        turn_detection=ServerVad(
+            type="server_vad",
+            threshold=0.5,
+            prefix_padding_ms=300,
+            silence_duration_ms=600,
+            create_response=True,
+            interrupt_response=True,
         ),
     )
 

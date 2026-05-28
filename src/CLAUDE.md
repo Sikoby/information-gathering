@@ -30,7 +30,7 @@ src/
 ## What it depends on
 
 - **LiveKit Cloud** — persistent WebSocket registers this worker as `briefing-agent`. Job offers arrive over that socket with JSON metadata `{briefing_description, run_id, target_minutes, custom_template?}`. The briefing is always an inline string (no file path); `custom_template`, when present, is used directly instead of template inference.
-- **OpenAI** — `gpt-realtime` for voice, `gpt-4o-mini-transcribe` for input transcription, `gpt-5-mini` for offline template selection at meeting start (only when no `custom_template` is supplied and no front-matter is set).
+- **OpenAI** — `gpt-realtime` for voice, `gpt-4o-mini-transcribe` for input transcription, `gpt-5-mini` for offline template selection at meeting start (only when no `custom_template` is supplied and no front-matter is set). The realtime model is configured with explicit `server_vad` turn detection (600ms silence); the plugin default `semantic_vad` was model-based and stalled 30-50s on short utterances. The `AgentSession` defers to this server-side detection, so the local `silero` VAD only drives interruptions.
 - **Redis** — writes to `state:<run_id>` and `events:<run_id>` after every state mutation; adds run_id to `runs:active` on start, removes on shutdown.
 - **Volumes** — `./out:/app/out` — read-write, per-run artifacts written at shutdown.
 
