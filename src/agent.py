@@ -202,8 +202,17 @@ async def entrypoint(ctx: JobContext) -> None:
         ],
     )
 
-    avatar = OrbAvatarSession()
-    await avatar.start(session, room=ctx.room)
+    # The orb avatar owns the agent's audio + video tracks. When disabled
+    # (AVATAR_ENABLED=false), AgentSession.start falls back to LiveKit's
+    # default RoomIO, which publishes the agent's TTS audio straight to the
+    # room — no video track, no in-process GL renderer.
+    if os.environ.get("AVATAR_ENABLED", "true").strip().lower() not in (
+        "false", "0", "no", "off",
+    ):
+        avatar = OrbAvatarSession()
+        await avatar.start(session, room=ctx.room)
+    else:
+        logger.info("avatar disabled (AVATAR_ENABLED); publishing audio-only")
 
     await session.start(agent=agent, room=ctx.room)
 
