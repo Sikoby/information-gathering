@@ -28,7 +28,6 @@ from loguru import logger
 from openai.types import realtime as openai_realtime
 from openai.types.realtime.realtime_audio_input_turn_detection import ServerVad
 
-from .avatar import OrbAvatarSession
 from .briefing_plan import select_template
 from .harness import (
     MeetingState,
@@ -201,18 +200,6 @@ async def entrypoint(ctx: JobContext) -> None:
             end_meeting,
         ],
     )
-
-    # The orb avatar owns the agent's audio + video tracks. When disabled
-    # (AVATAR_ENABLED=false), AgentSession.start falls back to LiveKit's
-    # default RoomIO, which publishes the agent's TTS audio straight to the
-    # room — no video track, no in-process GL renderer.
-    if os.environ.get("AVATAR_ENABLED", "true").strip().lower() not in (
-        "false", "0", "no", "off",
-    ):
-        avatar = OrbAvatarSession()
-        await avatar.start(session, room=ctx.room)
-    else:
-        logger.info("avatar disabled (AVATAR_ENABLED); publishing audio-only")
 
     await session.start(agent=agent, room=ctx.room)
 

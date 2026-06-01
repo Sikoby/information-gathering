@@ -8,7 +8,6 @@ The system runs as seven containers — agent, webapp, dispatch, template-genera
 
 - Docker + Docker Compose (the recommended way to run everything)
 - A LiveKit Cloud project and an OpenAI API key
-- An OpenGL/EGL runtime for the agent's animated face (the avatar renders GLSL shaders via `moderngl`). On Debian/Ubuntu: `apt install libegl1 libegl-mesa0`. macOS works out of the box.
 - For host-side tooling: Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) (the CLI scripts under `scripts/` use only the stdlib, but `uv` makes installs painless if you also want to run things locally)
 - For frontend iteration: Node 20+ and npm (the repo is an npm workspace — `npm install` at the root pulls in `shared`, `frontend`, and `console-frontend`)
 

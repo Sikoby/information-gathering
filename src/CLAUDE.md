@@ -44,7 +44,7 @@ python -m src.agent start
 
 For local non-container dev, use `uv run python -m src.agent dev` (dev mode is more verbose; `start` is for production).
 
-The runtime image installs Mesa's software-OpenGL stack (`libgl1`, `libegl1`, `libgl1-mesa-dri`) and sets `LIBGL_ALWAYS_SOFTWARE=1` so the shader-based avatar renderer in [avatar_render.py](avatar_render.py) can create an EGL context on a headless VM without a GPU. Without these the agent joins the room but publishes no audio/video tracks (the avatar owns both — see [avatar.py](avatar.py)).
+The agent publishes audio only — its TTS output is sent to the room via LiveKit's default `RoomIO`. No video track, no in-process renderer.
 
 ## Env vars
 
@@ -56,7 +56,6 @@ The runtime image installs Mesa's software-OpenGL stack (`libgl1`, `libegl1`, `l
 | `OPENAI_API_KEY` | yes | gpt-realtime + gpt-5-mini. |
 | `REDIS_URL` | yes (default redis://localhost:6379/0) | message bus to the webapp. |
 | `WEBAPP_PUBLIC_URL` | optional (default `http://localhost:8765`) | URL the agent posts to the room chat. Override when tunneling. |
-| `AVATAR_ENABLED` | optional (default `true`) | When `false`/`0`/`no`/`off`, the orb avatar is skipped and the agent publishes audio-only via the default RoomIO (no video track, no GL renderer). Currently set to `false` in [docker-compose.yml](../docker-compose.yml). |
 
 ## Shutdown behavior
 

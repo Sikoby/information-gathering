@@ -23,9 +23,6 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       WEBAPP_PUBLIC_URL: http://localhost:8765
-      # Orb avatar temporarily off — agent publishes audio-only. Set to
-      # "true" (or remove the line) to re-enable the in-process GL renderer.
-      AVATAR_ENABLED: "false"
     volumes:
       - ./out:/app/out
     depends_on:
