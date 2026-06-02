@@ -10,7 +10,7 @@ It is an **npm workspace** package (the repo root `package.json` declares `["sha
 
 ## What belongs here
 
-- `src/components/ui/*` — shadcn (new-york) primitives: `alert`, `badge`, `button`, `card`, `collapsible`, `input`, `progress`, `separator`, `textarea`.
+- `src/components/ui/*` — shadcn (new-york) primitives: `alert`, `badge`, `button`, `card`, `collapsible`, `dropdown-menu`, `input`, `progress`, `separator`, `textarea`; plus generic app-shell layout bars `header` + `footer` (a styled `<header>`/`<footer>` with a centered `max-w-6xl` container — apps pass the brand/actions/footer content as children).
 - `src/lib/utils.ts` — `cn()` (clsx + tailwind-merge).
 - `src/types.ts` — `Template`, `Section`, `SectionKind` and pure tree-walk helpers (`sectionById`, `childrenOf`, `pathTo`, `scheduledNodes`, `enclosingPhase`, …) — used by both apps; mirror `src/templates/schema.py`.
 - `tailwind-preset.cjs` — the shared Tailwind theme (colors, radius, animation).

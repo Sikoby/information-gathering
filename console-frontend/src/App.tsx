@@ -1,6 +1,21 @@
 import { useState, type ReactNode } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@ig/ui";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Footer,
+  Header,
+} from "@ig/ui";
+import { CircleUser, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Dashboard } from "@/pages/Dashboard";
 import { NewTemplate } from "@/pages/NewTemplate";
@@ -55,12 +70,37 @@ function AuthGate({ children }: { children: ReactNode }) {
   }
 
   return (
-    <>
-      <div className="pointer-events-none fixed right-4 top-3 z-50 text-xs text-muted-foreground">
-        signed in as {auth.email}
-      </div>
-      {children}
-    </>
+    <div className="flex min-h-screen flex-col">
+      <Header>
+        <Link to="/" className="text-sm font-semibold tracking-tight">
+          Information Gathering
+        </Link>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Account">
+              <CircleUser className="size-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel className="font-normal text-muted-foreground">
+              {auth.email}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => window.location.assign("/cdn-cgi/access/logout")}
+            >
+              <LogOut />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </Header>
+      <main className="flex-1">{children}</main>
+      <Footer>
+        <span>Information Gathering</span>
+        <span>© {new Date().getFullYear()}</span>
+      </Footer>
+    </div>
   );
 }
 

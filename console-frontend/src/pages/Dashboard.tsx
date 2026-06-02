@@ -34,7 +34,7 @@ export function Dashboard() {
     <div className="mx-auto max-w-6xl px-6 py-8 space-y-12">
       <section>
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
+          <h2 className="text-2xl font-semibold tracking-tight">Templates</h2>
           <Button asChild>
             <Link to="/templates/new">New template</Link>
           </Button>
@@ -56,7 +56,7 @@ export function Dashboard() {
       </section>
 
       <section>
-        <h2 className="text-lg font-semibold tracking-tight">Meetings</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
         {meetingsError && (
           <p className="mt-4 text-sm text-destructive">{meetingsError}</p>
         )}
