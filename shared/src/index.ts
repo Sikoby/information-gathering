@@ -10,5 +10,6 @@ export * from "./components/ui/input";
 export * from "./components/ui/progress";
 export * from "./components/ui/separator";
 export * from "./components/ui/textarea";
+export * from "./components/ui/tooltip";
 export * from "./lib/utils";
 export * from "./types";
