@@ -69,6 +69,7 @@ The user dislikes visually noisy editor UI. Follow these rules everywhere in thi
 - **One font family across the UI.** Do not use `font-mono`. No "tech" / monospace styling for ids, run ids, elapsed timers, or anything else. Use `tabular-nums` if you need digits to not jitter.
 - **Never render internal ids in the UI.** Section ids, meeting ids, run ids, etc. are for the network, not the user. If you need to display one for debugging, gate it behind a debug toggle.
 - **No ALL CAPS.** Don't use `uppercase` (with or without `tracking-wide`) for labels, badges, headings, or status text. Sentence case for headings, lowercase for chips.
+- **Consistent heading scale.** Keep heading sizes uniform across pages: page titles `text-2xl font-semibold tracking-tight`; section headers `text-lg font-semibold tracking-tight`; minor / overline group labels `text-sm font-semibold text-muted-foreground`; field labels `text-sm font-medium`. An `InfoTooltip` next to a heading takes the matching `size` so the icon scales with the text: `lg` ↔ page title, `md` ↔ section, `sm` ↔ label.
 - **Header first, true collapse.** For any expandable item, the row's title is the first thing visible and is the *only* thing visible when collapsed. Body, notes, metadata, and children all live below the title and disappear together when the row is collapsed.
 - **Don't editorialise field labels.** Keep them short ("Speaker notes", not "Speaker notes · hidden from participants"). Explain hidden-from-participants / similar context in the placeholder or helper text instead.
 

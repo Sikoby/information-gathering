@@ -28,13 +28,27 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
+// Icon size scales with the heading it sits next to — see the console heading
+// scale in console-frontend/CLAUDE.md (lg ↔ page title, md ↔ section, sm ↔ label).
+const INFO_ICON_SIZE = {
+  sm: "h-3.5 w-3.5",
+  md: "h-4 w-4",
+  lg: "h-5 w-5",
+} as const;
+
 export interface InfoTooltipProps {
   content: React.ReactNode;
   side?: "top" | "right" | "bottom" | "left";
+  size?: keyof typeof INFO_ICON_SIZE;
   className?: string;
 }
 
-function InfoTooltip({ content, side = "top", className }: InfoTooltipProps) {
+function InfoTooltip({
+  content,
+  side = "top",
+  size = "md",
+  className,
+}: InfoTooltipProps) {
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
@@ -48,7 +62,7 @@ function InfoTooltip({ content, side = "top", className }: InfoTooltipProps) {
               className,
             )}
           >
-            <Info className="h-4 w-4" />
+            <Info className={INFO_ICON_SIZE[size]} />
           </button>
         </TooltipTrigger>
         <TooltipContent side={side}>{content}</TooltipContent>

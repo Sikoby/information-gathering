@@ -85,7 +85,10 @@ export function NewTemplate() {
       </Link>
       <div className="mt-2 flex items-center gap-1.5">
         <h1 className="text-2xl font-semibold tracking-tight">New template</h1>
-        <InfoTooltip content="A template is reusable — generate it once, then start as many meetings from it as you want." />
+        <InfoTooltip
+          size="lg"
+          content="A template is reusable — generate it once, then start as many meetings from it as you want."
+        />
       </div>
 
       <form onSubmit={submit} className="mt-6 space-y-5">
@@ -103,7 +106,10 @@ export function NewTemplate() {
         <div>
           <div className="flex items-center gap-1.5">
             <label className="text-sm font-medium">Prompt</label>
-            <InfoTooltip content="Describe the meeting — who it is with, what to cover, what a good outcome looks like. This becomes the agent's briefing." />
+            <InfoTooltip
+              size="sm"
+              content="Describe the meeting — who it is with, what to cover, what a good outcome looks like. This becomes the agent's briefing."
+            />
           </div>
           <Textarea
             className="mt-1"
@@ -127,7 +133,10 @@ export function NewTemplate() {
             <label className="text-sm font-medium">
               Presentation document (optional)
             </label>
-            <InfoTooltip content="Upload a .pptx or .pdf to drive the meeting. Each slide becomes a topic; speaker notes pre-populate so the agent can read them during the meeting." />
+            <InfoTooltip
+              size="sm"
+              content="Upload a .pptx or .pdf to drive the meeting. Each slide becomes a topic; speaker notes pre-populate so the agent can read them during the meeting."
+            />
           </div>
           {file ? (
             <div className="mt-2 flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm">
