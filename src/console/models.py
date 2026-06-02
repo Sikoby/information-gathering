@@ -34,6 +34,7 @@ class TemplateRecord(BaseModel):
     """
 
     template_id: str
+    owner_email: str
     title: str
     source_prompt: str
     reference_template: str | None = None
@@ -58,6 +59,7 @@ class MeetingRecord(BaseModel):
     """A meeting instance stored (as JSON) at `meeting:<meeting_id>`."""
 
     meeting_id: str
+    owner_email: str
     template_id: str
     title_override: str | None = None
     target_minutes: int = 30

@@ -5,6 +5,16 @@ import type {
   TemplateRecord,
 } from "@/types";
 
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -12,10 +22,16 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `${res.status} ${res.statusText}`);
+    throw new ApiError(res.status, text || `${res.status} ${res.statusText}`);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+// -------------------------------------------------------------------- me
+
+export function getMe(): Promise<{ email: string }> {
+  return req("/api/me");
 }
 
 // --------------------------------------------------------------- templates
@@ -63,7 +79,7 @@ export async function createTemplateFromDocument(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(text || `${res.status} ${res.statusText}`);
+    throw new ApiError(res.status, text || `${res.status} ${res.statusText}`);
   }
   return (await res.json()) as TemplateRecord;
 }

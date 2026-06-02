@@ -112,6 +112,10 @@ services:
       DISPATCH_URL: http://dispatch:8766
       TEMPLATE_GEN_URL: http://template-generator:8768
       WEBAPP_PUBLIC_URL: http://localhost:8765
+      # Local-dev fallback when Cloudflare Access isn't in front. Leave
+      # unset in production so requests without Cf-Access-Authenticated-User-Email
+      # are rejected with 401.
+      CONSOLE_DEV_USER_EMAIL: ${CONSOLE_DEV_USER_EMAIL:-dev@local}
     ports:
       - "8770:8770"
     depends_on:

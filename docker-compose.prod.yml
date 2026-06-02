@@ -23,6 +23,8 @@ services:
     ports: !reset []
     environment:
       WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
+      # Cloudflare Access supplies the identity in prod — no dev fallback.
+      CONSOLE_DEV_USER_EMAIL: ""
 
   console-frontend:
     ports: !reset []

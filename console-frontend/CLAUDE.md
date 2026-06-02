@@ -16,12 +16,13 @@ console-frontend/
   nginx.conf                serve static + proxy /api + /healthz to console:8770
   src/
     main.tsx                createRoot + <BrowserRouter>
-    App.tsx                 <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/:id
+    App.tsx                 <AuthGate> + <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/:id
     types.ts                TemplateRecord + MeetingRecord — keep in sync with src/console/models.py
     lib/
-      api.ts                fetch wrappers for /api/*
+      api.ts                fetch wrappers for /api/* + ApiError (carries status code for 401 branching)
       format.ts             relativeTime, slugify
     hooks/
+      useAuth.ts            calls GET /api/me once on mount → {loading|signed-in|unauthenticated|error}
       usePolling.ts         setInterval helper
       useTemplates.ts       dashboard template list, polls every 5s
       useTemplate.ts        one template, polls 3s only while generating
@@ -53,8 +54,12 @@ Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come 
 - Routing is `BrowserRouter`; deep links work because nginx falls back to `index.html` (`try_files`).
 - Polling, not SSE. `useTemplate` polls only while `template_status === "generating"`, `useMeeting` only while `status === "running"` — so polling never clobbers in-progress template edits in `TemplateDetail`.
 - `TemplateDetail` holds a local `draft` re-initialised when `template_id`/`generation_seq`/`template_status` changes (see the `draftKey` effect).
-- `types.ts` mirrors `src/console/models.py` — keep them in sync.
+- `types.ts` mirrors `src/console/models.py` — keep them in sync. Both `TemplateRecord` and `MeetingRecord` carry `owner_email`.
 - First visit per tab is redirected from `/` to `/welcome`; `sessionStorage['welcome:dismissed']` clears the redirect for the rest of that tab session.
+
+## Auth
+
+`AuthGate` (in `App.tsx`) wraps every route. It calls `GET /api/me` once on mount; on `401` it shows a "Sign in via Cloudflare Access" card (mentioning the `CONSOLE_DEV_USER_EMAIL` env var for local dev), otherwise it renders the routes with a tiny "signed in as <email>" indicator pinned to the top-right corner. The backend already filters lists per user, so the existing hooks (`useTemplates`, `useMeetings`) don't need a tenant param.
 
 ## Design conventions
 

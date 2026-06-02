@@ -33,7 +33,7 @@ from .models import (
 )
 
 
-_START_LOCK_KEY = "console:start:lock"
+_START_LOCK_PREFIX = "console:start:lock:"
 _START_LOCK_TTL_SECONDS = 5
 
 _T = TypeVar("_T", bound=BaseModel)
@@ -86,6 +86,7 @@ async def post_templates(request: web.Request) -> web.Response:
     now = registry.now_iso()
     rec = TemplateRecord(
         template_id=template_id,
+        owner_email=request["user_email"],
         title=payload.title,
         source_prompt=payload.source_prompt,
         reference_template=payload.reference_template,
@@ -96,7 +97,9 @@ async def post_templates(request: web.Request) -> web.Response:
     )
     await registry.create_template(rec)
     generation.spawn(request.app["http_session"], template_id, rec.generation_seq)
-    logger.info("created template_id={}", template_id)
+    logger.info(
+        "created template_id={} owner={}", template_id, rec.owner_email
+    )
     return web.json_response(rec.model_dump(mode="json"), status=201)
 
 
@@ -180,6 +183,7 @@ async def post_templates_upload(request: web.Request) -> web.Response:
     now = registry.now_iso()
     rec = TemplateRecord(
         template_id=template_id,
+        owner_email=request["user_email"],
         title=payload.title,
         source_prompt=payload.source_prompt,
         reference_template=payload.reference_template,
@@ -194,8 +198,9 @@ async def post_templates_upload(request: web.Request) -> web.Response:
     await registry.create_template(rec)
     generation.spawn(request.app["http_session"], template_id, rec.generation_seq)
     logger.info(
-        "created template_id={} from document={} ({} slides)",
+        "created template_id={} owner={} from document={} ({} slides)",
         template_id,
+        rec.owner_email,
         file_name,
         len(outline.get("slides", [])),
     )
@@ -213,17 +218,40 @@ def _detect_kind(filename: str, content_type: str | None) -> str | None:
     return None
 
 
-async def get_templates(_request: web.Request) -> web.Response:
-    recs = await registry.list_templates()
+async def _load_owned_template(
+    request: web.Request,
+) -> TemplateRecord | web.Response:
+    """Load the template named in the URL; return 404 on miss or owner mismatch.
+
+    404 (not 403) on mismatch so we don't leak the existence of other users'
+    templates.
+    """
+    rec = await registry.get_template(request.match_info["template_id"])
+    if rec is None or rec.owner_email != request["user_email"]:
+        return web.json_response({"error": "not found"}, status=404)
+    return rec
+
+
+async def _load_owned_meeting(
+    request: web.Request,
+) -> MeetingRecord | web.Response:
+    rec = await registry.get(request.match_info["meeting_id"])
+    if rec is None or rec.owner_email != request["user_email"]:
+        return web.json_response({"error": "not found"}, status=404)
+    return rec
+
+
+async def get_templates(request: web.Request) -> web.Response:
+    recs = await registry.list_templates_by_owner(request["user_email"])
     return web.json_response(
         {"templates": [r.model_dump(mode="json") for r in recs]}
     )
 
 
 async def get_template(request: web.Request) -> web.Response:
-    rec = await registry.get_template(request.match_info["template_id"])
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_template(request)
+    if isinstance(rec, web.Response):
+        return rec
     return web.json_response(rec.model_dump(mode="json"))
 
 
@@ -233,9 +261,9 @@ async def patch_template(request: web.Request) -> web.Response:
     if isinstance(patch, web.Response):
         return patch
 
-    rec = await registry.get_template(template_id)
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_template(request)
+    if isinstance(rec, web.Response):
+        return rec
 
     fields = patch.model_dump(exclude_unset=True, exclude_none=True)
     if "template" in fields:
@@ -265,9 +293,9 @@ async def post_template_regenerate(request: web.Request) -> web.Response:
     if (err := _check_reference_template(opts.reference_template)) is not None:
         return err
 
-    rec = await registry.get_template(template_id)
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_template(request)
+    if isinstance(rec, web.Response):
+        return rec
 
     new_seq = rec.generation_seq + 1
     fields: dict = {
@@ -287,11 +315,11 @@ async def post_template_regenerate(request: web.Request) -> web.Response:
 
 async def delete_template(request: web.Request) -> web.Response:
     template_id = request.match_info["template_id"]
-    rec = await registry.get_template(template_id)
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_template(request)
+    if isinstance(rec, web.Response):
+        return rec
 
-    meetings = await registry.list_all()
+    meetings = await registry.list_meetings_by_owner(request["user_email"])
     referencing = [m for m in meetings if m.template_id == template_id]
     if referencing:
         running_count = sum(1 for m in referencing if m.status == "running")
@@ -310,29 +338,35 @@ async def delete_template(request: web.Request) -> web.Response:
 
 async def post_template_start_meeting(request: web.Request) -> web.Response:
     template_id = request.match_info["template_id"]
+    email = request["user_email"]
     opts = await _parse_body(request, MeetingStartFromTemplate, optional=True)
     if isinstance(opts, web.Response):
         return opts
 
-    tmpl = await registry.get_template(template_id)
-    if tmpl is None:
-        return web.json_response({"error": "not found"}, status=404)
+    tmpl = await _load_owned_template(request)
+    if isinstance(tmpl, web.Response):
+        return tmpl
     if tmpl.template_status != "ready" or tmpl.template is None:
         return web.json_response(
             {"error": f"template is not ready (status={tmpl.template_status})"},
             status=424,
         )
 
-    # Narrow the read-modify-write race across replicas. The list_all check
-    # below is the real guard; this just shrinks the window.
+    # Narrow the read-modify-write race across replicas — scoped to this
+    # user, since the one-at-a-time guard is per-user. The list check below
+    # is the real guard; this just shrinks the window.
     if not await registry.try_acquire_leader(
-        _START_LOCK_KEY, _START_LOCK_TTL_SECONDS
+        f"{_START_LOCK_PREFIX}{email}", _START_LOCK_TTL_SECONDS
     ):
         return web.json_response(
             {"error": "another start is in progress"}, status=409
         )
 
-    running = [m for m in await registry.list_all() if m.status == "running"]
+    running = [
+        m
+        for m in await registry.list_meetings_by_owner(email)
+        if m.status == "running"
+    ]
     if running:
         return web.json_response(
             {
@@ -362,6 +396,7 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
     now = registry.now_iso()
     rec = MeetingRecord(
         meeting_id=meeting_id,
+        owner_email=email,
         template_id=template_id,
         title_override=opts.title_override,
         target_minutes=target_minutes,
@@ -376,8 +411,9 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
     )
     await registry.create(rec)
     logger.info(
-        "started meeting_id={} from template_id={} run_id={}",
+        "started meeting_id={} owner={} from template_id={} run_id={}",
         meeting_id,
+        email,
         template_id,
         result["run_id"],
     )
@@ -387,30 +423,29 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
 # =============================================================== meetings
 
 
-async def get_meetings(_request: web.Request) -> web.Response:
-    recs = await registry.list_all()
+async def get_meetings(request: web.Request) -> web.Response:
+    recs = await registry.list_meetings_by_owner(request["user_email"])
     return web.json_response(
         {"meetings": [r.model_dump(mode="json") for r in recs]}
     )
 
 
 async def get_meeting(request: web.Request) -> web.Response:
-    rec = await registry.get(request.match_info["meeting_id"])
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_meeting(request)
+    if isinstance(rec, web.Response):
+        return rec
     return web.json_response(rec.model_dump(mode="json"))
 
 
 async def delete_meeting(request: web.Request) -> web.Response:
-    meeting_id = request.match_info["meeting_id"]
-    rec = await registry.get(meeting_id)
-    if rec is None:
-        return web.json_response({"error": "not found"}, status=404)
+    rec = await _load_owned_meeting(request)
+    if isinstance(rec, web.Response):
+        return rec
     if rec.status == "running":
         return web.json_response(
             {"error": "cannot delete a running meeting"}, status=409
         )
-    await registry.delete(meeting_id)
+    await registry.delete(rec.meeting_id)
     return web.Response(status=204)
 
 
@@ -426,6 +461,12 @@ async def get_reference_templates(_request: web.Request) -> web.Response:
             ]
         }
     )
+
+
+async def get_me(request: web.Request) -> web.Response:
+    """Identity probe for the SPA — echoes the authenticated email back so
+    the frontend can render `signed in as <email>` and detect 401."""
+    return web.json_response({"email": request["user_email"]})
 
 
 async def get_healthz(_request: web.Request) -> web.Response:
