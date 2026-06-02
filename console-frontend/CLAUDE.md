@@ -16,7 +16,7 @@ console-frontend/
   nginx.conf                serve static + proxy /api + /healthz to console:8770
   src/
     main.tsx                createRoot + <BrowserRouter>
-    App.tsx                 <AuthGate> + <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/:id
+    App.tsx                 <AuthGate> (global Header/Footer chrome + account menu) + <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/:id
     types.ts                TemplateRecord + MeetingRecord — keep in sync with src/console/models.py
     lib/
       api.ts                fetch wrappers for /api/* + ApiError (carries status code for 401 branching)
@@ -59,7 +59,7 @@ Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come 
 
 ## Auth
 
-`AuthGate` (in `App.tsx`) wraps every route. It calls `GET /api/me` once on mount; on `401` it shows a "Sign in via Cloudflare Access" card (mentioning the `CONSOLE_DEV_USER_EMAIL` env var for local dev), otherwise it renders the routes with a tiny "signed in as <email>" indicator pinned to the top-right corner. The backend already filters lists per user, so the existing hooks (`useTemplates`, `useMeetings`) don't need a tenant param.
+`AuthGate` (in `App.tsx`) wraps every route. It calls `GET /api/me` once on mount; on `401` it shows a "Sign in via Cloudflare Access" card (mentioning the `CONSOLE_DEV_USER_EMAIL` env var for local dev), otherwise it renders the routes inside the global chrome: the shared `Header` (the "Information Gathering" brand on the left; on the right an account-icon `DropdownMenu` holding the signed-in email and a **Sign out** item) and the shared `Footer`. Sign out redirects the browser to `/cdn-cgi/access/logout` — the standard Cloudflare Access logout, handled at Cloudflare's edge in prod (a no-op SPA reload in local dev, where there is no Cloudflare). The backend already filters lists per user, so the existing hooks (`useTemplates`, `useMeetings`) don't need a tenant param.
 
 ## Design conventions
 
