@@ -16,7 +16,7 @@ from aiohttp import web
 from dotenv import load_dotenv
 from loguru import logger
 
-from . import handlers, reconcile
+from . import auth, handlers, reconcile
 
 
 async def _on_startup(app: web.Application) -> None:
@@ -46,7 +46,11 @@ async def _on_cleanup(app: web.Application) -> None:
 
 def build_app() -> web.Application:
     # 50 MB ceiling — accommodates PPTX uploads on /api/templates/upload.
-    app = web.Application(client_max_size=50 * 1024 * 1024)
+    app = web.Application(
+        client_max_size=50 * 1024 * 1024,
+        middlewares=[auth.auth_middleware],
+    )
+    app.router.add_get("/api/me", handlers.get_me)
     app.router.add_post("/api/templates", handlers.post_templates)
     app.router.add_post("/api/templates/upload", handlers.post_templates_upload)
     app.router.add_get("/api/templates", handlers.get_templates)

@@ -83,12 +83,14 @@ The agent is long-running and registered with LiveKit as `briefing-agent`. The c
 | `state:<run_id>` | string (JSON) | agent | webapp, console | TTL 24h |
 | `events:<run_id>` | pub/sub | agent | webapp | snapshot JSON per message |
 | `runs:active` | set | agent | dispatch | optional, served by `GET /runs` |
-| `template:<template_id>` | string (JSON) | console | console | the reusable template + its generation metadata + the source document_outline; no TTL, AOF-persisted |
-| `templates:index` | sorted set | console | console | template_ids scored by created-at, for listing |
-| `meeting:<meeting_id>` | string (JSON) | console | console | a thin meeting instance referencing a template_id; no TTL, AOF-persisted |
-| `meetings:index` | sorted set | console | console | meeting_ids scored by created-at, for listing |
+| `template:<template_id>` | string (JSON) | console | console | the reusable template + its generation metadata + the source document_outline + `owner_email`; no TTL, AOF-persisted |
+| `templates:index` | sorted set | console | console | template_ids scored by created-at; global, used by the reconcile loop |
+| `templates:owner:<email>` | sorted set | console | console | the user's templates, scored by created-at; backs `GET /api/templates` |
+| `meeting:<meeting_id>` | string (JSON) | console | console | a thin meeting instance referencing a template_id, plus `owner_email`; no TTL, AOF-persisted |
+| `meetings:index` | sorted set | console | console | meeting_ids scored by created-at; global, used by the reconcile loop |
+| `meetings:owner:<email>` | sorted set | console | console | the user's meetings, scored by created-at; backs `GET /api/meetings` |
 | `console:reconcile:leader` | string | console | console | short-TTL leader lock for the reconcile loop |
-| `console:start:lock` | string | console | console | short-TTL lock around the start-meeting handler |
+| `console:start:lock:<email>` | string | console | console | short-TTL lock around the per-user start-meeting handler |
 
 Redis runs with AOF persistence (`--appendonly yes`) and a named volume so the template + meeting registries survive restarts.
 
@@ -146,9 +148,17 @@ uv run python scripts/preview_dev_server.py    # http://localhost:8767/dev/
 
 For a production deploy (single Hetzner VM, Cloudflare Tunnel for ingress + TLS, Cloudflare Access on the console), see [README.md](README.md) "Production deploy". The overlay [docker-compose.prod.yml](docker-compose.prod.yml) adds a `cloudflared` service and closes the host port mappings; the base seven-service architecture is unchanged.
 
+## Console identity
+
+The console is **per-user**: every template and every meeting carries an `owner_email`, and the list endpoints (`GET /api/templates`, `GET /api/meetings`) only return records owned by the caller. The "one meeting at a time" guard is per-user too.
+
+Identity comes from the `Cf-Access-Authenticated-User-Email` request header that Cloudflare Access stamps onto every prod request once the user has signed in. In local dev there is no Cloudflare in front, so the console falls back to the `CONSOLE_DEV_USER_EMAIL` env var (defaults to `dev@local` in the compose file). Override it to simulate different users. In production the var is left empty, so a request without the Cloudflare header gets a `401`.
+
+The dispatch and webapp services remain unauthenticated — the live meeting viewer is a public link and the CLI dispatch path is for developers. Only the console is scoped.
+
 ## What's intentionally out of scope here
 
-- Authentication. The console can create and start meetings (spending OpenAI + LiveKit budget) with no auth — same posture as the other public endpoints.
+- Authentication beyond the Cloudflare-Access email above. No login UI, no roles, no per-record sharing, no session store. The webapp and dispatch services remain open.
 - Auto-registering templates into the agent's hardcoded `TEMPLATES` dict. Custom templates reach the agent inline via dispatch metadata; the dict still holds only the four built-ins.
 - The supervisor (silent gpt-5 reviewer) — removed; will return as another container that subscribes to `events:*`. The Redis spine absorbs it without changing the rest.
 - Off-host artifact storage (S3). `out/<run_id>/` and `templates_generated/` live in bind-mounted volumes; the template and meeting registries are AOF-persisted Redis.

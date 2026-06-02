@@ -35,6 +35,7 @@ export type DocumentOutline = {
 /** Mirrors src/console/models.py TemplateRecord. Keep in sync. */
 export type TemplateRecord = {
   template_id: string;
+  owner_email: string;
   title: string;
   source_prompt: string;
   reference_template: string | null;
@@ -55,6 +56,7 @@ export type TemplateRecord = {
 /** Mirrors src/console/models.py MeetingRecord. Keep in sync. */
 export type MeetingRecord = {
   meeting_id: string;
+  owner_email: string;
   template_id: string;
   title_override: string | null;
   target_minutes: number;

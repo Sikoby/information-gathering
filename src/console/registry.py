@@ -5,11 +5,18 @@ Lua compare-and-swap merge, so concurrent writers (the PATCH handler, the
 generation task, the reconcile loop, any replica) never clobber each other.
 
 Storage layout:
-  template:<template_id>     string (JSON) — the TemplateRecord, no TTL
-  templates:index            sorted set — member=template_id, score=created epoch
-  meeting:<meeting_id>       string (JSON) — the MeetingRecord, no TTL
-  meetings:index             sorted set — member=meeting_id, score=created epoch
-  console:reconcile:leader   short-TTL string — reconcile-loop leader lock
+  template:<template_id>      string (JSON) — the TemplateRecord, no TTL
+  templates:index             sorted set — global, members=template_id, score=created epoch
+  templates:owner:<email>     sorted set — per-user, same shape as templates:index
+  meeting:<meeting_id>        string (JSON) — the MeetingRecord, no TTL
+  meetings:index              sorted set — global, members=meeting_id, score=created epoch
+  meetings:owner:<email>      sorted set — per-user, same shape as meetings:index
+  console:reconcile:leader    short-TTL string — reconcile-loop leader lock
+
+The global indexes back the reconcile loop (which sweeps every running
+meeting / generating template). The per-user indexes back the user-facing
+list endpoints. Both are written on create and cleaned on delete; the merge
+script only mutates the record string.
 
 Templates store `template` (the Template body) and `document_outline` as
 embedded JSON *strings* — the Lua merge decodes and re-encodes the whole
@@ -34,8 +41,10 @@ from .models import MeetingRecord, TemplateRecord
 
 _MEETING_PREFIX = "meeting:"
 _MEETINGS_INDEX_KEY = "meetings:index"
+_MEETINGS_OWNER_PREFIX = "meetings:owner:"
 _TEMPLATE_PREFIX = "template:"
 _TEMPLATES_INDEX_KEY = "templates:index"
+_TEMPLATES_OWNER_PREFIX = "templates:owner:"
 
 _MEETING_JSON_STRING_FIELDS: tuple[str, ...] = ()
 _TEMPLATE_JSON_STRING_FIELDS: tuple[str, ...] = ("template", "document_outline")
@@ -83,6 +92,14 @@ def meeting_key(meeting_id: str) -> str:
 
 def template_key(template_id: str) -> str:
     return f"{_TEMPLATE_PREFIX}{template_id}"
+
+
+def _meetings_owner_key(owner_email: str) -> str:
+    return f"{_MEETINGS_OWNER_PREFIX}{owner_email}"
+
+
+def _templates_owner_key(owner_email: str) -> str:
+    return f"{_TEMPLATES_OWNER_PREFIX}{owner_email}"
 
 
 def new_meeting_id() -> str:
@@ -145,12 +162,14 @@ async def _merge(
 
 async def create(rec: MeetingRecord) -> None:
     client = get_client()
+    score = time.time()
     async with client.pipeline(transaction=True) as pipe:
         pipe.set(
             meeting_key(rec.meeting_id),
             _dump_for_storage(rec, _MEETING_JSON_STRING_FIELDS),
         )
-        pipe.zadd(_MEETINGS_INDEX_KEY, {rec.meeting_id: time.time()})
+        pipe.zadd(_MEETINGS_INDEX_KEY, {rec.meeting_id: score})
+        pipe.zadd(_meetings_owner_key(rec.owner_email), {rec.meeting_id: score})
         await pipe.execute()
 
 
@@ -161,12 +180,10 @@ async def get(meeting_id: str) -> MeetingRecord | None:
     return _load_from_storage(raw, MeetingRecord, _MEETING_JSON_STRING_FIELDS)
 
 
-async def list_all(limit: int = 200) -> list[MeetingRecord]:
-    client = get_client()
-    ids = await client.zrevrange(_MEETINGS_INDEX_KEY, 0, limit - 1)
+async def _load_meetings_by_ids(ids: list[str]) -> list[MeetingRecord]:
     if not ids:
         return []
-    raws = await client.mget([meeting_key(mid) for mid in ids])
+    raws = await get_client().mget([meeting_key(mid) for mid in ids])
     out: list[MeetingRecord] = []
     for raw in raws:
         if raw is None:
@@ -180,11 +197,29 @@ async def list_all(limit: int = 200) -> list[MeetingRecord]:
     return out
 
 
+async def list_all(limit: int = 200) -> list[MeetingRecord]:
+    """Global newest-first listing. Used by the reconcile loop."""
+    ids = await get_client().zrevrange(_MEETINGS_INDEX_KEY, 0, limit - 1)
+    return await _load_meetings_by_ids(ids)
+
+
+async def list_meetings_by_owner(
+    owner_email: str, limit: int = 200
+) -> list[MeetingRecord]:
+    ids = await get_client().zrevrange(
+        _meetings_owner_key(owner_email), 0, limit - 1
+    )
+    return await _load_meetings_by_ids(ids)
+
+
 async def delete(meeting_id: str) -> None:
+    rec = await get(meeting_id)
     client = get_client()
     async with client.pipeline(transaction=True) as pipe:
         pipe.delete(meeting_key(meeting_id))
         pipe.zrem(_MEETINGS_INDEX_KEY, meeting_id)
+        if rec is not None:
+            pipe.zrem(_meetings_owner_key(rec.owner_email), meeting_id)
         await pipe.execute()
 
 
@@ -203,12 +238,14 @@ async def update(meeting_id: str, **fields) -> bool:
 
 async def create_template(rec: TemplateRecord) -> None:
     client = get_client()
+    score = time.time()
     async with client.pipeline(transaction=True) as pipe:
         pipe.set(
             template_key(rec.template_id),
             _dump_for_storage(rec, _TEMPLATE_JSON_STRING_FIELDS),
         )
-        pipe.zadd(_TEMPLATES_INDEX_KEY, {rec.template_id: time.time()})
+        pipe.zadd(_TEMPLATES_INDEX_KEY, {rec.template_id: score})
+        pipe.zadd(_templates_owner_key(rec.owner_email), {rec.template_id: score})
         await pipe.execute()
 
 
@@ -219,12 +256,10 @@ async def get_template(template_id: str) -> TemplateRecord | None:
     return _load_from_storage(raw, TemplateRecord, _TEMPLATE_JSON_STRING_FIELDS)
 
 
-async def list_templates(limit: int = 200) -> list[TemplateRecord]:
-    client = get_client()
-    ids = await client.zrevrange(_TEMPLATES_INDEX_KEY, 0, limit - 1)
+async def _load_templates_by_ids(ids: list[str]) -> list[TemplateRecord]:
     if not ids:
         return []
-    raws = await client.mget([template_key(tid) for tid in ids])
+    raws = await get_client().mget([template_key(tid) for tid in ids])
     out: list[TemplateRecord] = []
     for raw in raws:
         if raw is None:
@@ -238,11 +273,29 @@ async def list_templates(limit: int = 200) -> list[TemplateRecord]:
     return out
 
 
+async def list_templates(limit: int = 200) -> list[TemplateRecord]:
+    """Global newest-first listing. Used by the reconcile loop."""
+    ids = await get_client().zrevrange(_TEMPLATES_INDEX_KEY, 0, limit - 1)
+    return await _load_templates_by_ids(ids)
+
+
+async def list_templates_by_owner(
+    owner_email: str, limit: int = 200
+) -> list[TemplateRecord]:
+    ids = await get_client().zrevrange(
+        _templates_owner_key(owner_email), 0, limit - 1
+    )
+    return await _load_templates_by_ids(ids)
+
+
 async def delete_template(template_id: str) -> None:
+    rec = await get_template(template_id)
     client = get_client()
     async with client.pipeline(transaction=True) as pipe:
         pipe.delete(template_key(template_id))
         pipe.zrem(_TEMPLATES_INDEX_KEY, template_id)
+        if rec is not None:
+            pipe.zrem(_templates_owner_key(rec.owner_email), template_id)
         await pipe.execute()
 
 
