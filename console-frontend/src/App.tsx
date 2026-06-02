@@ -97,7 +97,7 @@ function AuthGate({ children }: { children: ReactNode }) {
       </Header>
       <main className="flex-1">{children}</main>
       <Footer>
-        <span>Information Gathering</span>
+        <span>flomoo-ai</span>
         <span>© {new Date().getFullYear()}</span>
       </Footer>
     </div>

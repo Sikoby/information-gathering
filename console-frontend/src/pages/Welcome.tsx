@@ -40,7 +40,7 @@ export function Welcome() {
       </div>
 
       <section>
-        <h1 className="text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl font-semibold tracking-tight">
           Welcome to the meeting console
         </h1>
         <p className="mt-3 text-muted-foreground">
@@ -51,7 +51,7 @@ export function Welcome() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold tracking-tight">
+        <h2 className="text-lg font-semibold tracking-tight">
           Three ways to start
         </h2>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -94,7 +94,7 @@ export function Welcome() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold tracking-tight">
+        <h2 className="text-lg font-semibold tracking-tight">
           Template vs meeting
         </h2>
         <div className="mt-4 grid gap-8 md:grid-cols-2">
@@ -117,7 +117,7 @@ export function Welcome() {
       </section>
 
       <section>
-        <h2 className="text-xl font-semibold tracking-tight">How it works</h2>
+        <h2 className="text-lg font-semibold tracking-tight">How it works</h2>
         <ol className="mt-4 list-decimal pl-6 space-y-2 text-base">
           <li>Create a template — from a prompt, a PowerPoint, or a PDF.</li>
           <li>

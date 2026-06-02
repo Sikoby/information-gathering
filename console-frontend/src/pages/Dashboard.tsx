@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "@ig/ui";
+import { Button, InfoTooltip } from "@ig/ui";
 import { useTemplates } from "@/hooks/useTemplates";
 import { useMeetings } from "@/hooks/useMeetings";
 import { TemplateCard } from "@/components/TemplateCard";
@@ -34,7 +34,13 @@ export function Dashboard() {
     <div className="mx-auto max-w-6xl px-6 py-8 space-y-12">
       <section>
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-semibold tracking-tight">Templates</h2>
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-2xl font-semibold tracking-tight">Templates</h2>
+            <InfoTooltip
+              size="lg"
+              content="A template is a reusable meeting definition — generate it once, then start as many meetings from it as you want."
+            />
+          </div>
           <Button asChild>
             <Link to="/templates/new">New template</Link>
           </Button>
@@ -56,7 +62,13 @@ export function Dashboard() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
+          <InfoTooltip
+            size="lg"
+            content="A meeting is a live, AI-run instance of a template. It goes from running to done; only one runs at a time."
+          />
+        </div>
         {meetingsError && (
           <p className="mt-4 text-sm text-destructive">{meetingsError}</p>
         )}

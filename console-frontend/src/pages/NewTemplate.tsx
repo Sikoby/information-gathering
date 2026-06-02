@@ -1,7 +1,7 @@
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { FileText, Upload, X } from "lucide-react";
-import { Button, Input, Textarea } from "@ig/ui";
+import { Button, Input, Textarea, InfoTooltip } from "@ig/ui";
 import {
   createTemplate,
   createTemplateFromDocument,
@@ -83,11 +83,13 @@ export function NewTemplate() {
       >
         ← Back
       </Link>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">New template</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        A template is reusable — generate it once, then start as many meetings
-        from it as you want.
-      </p>
+      <div className="mt-2 flex items-center gap-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight">New template</h1>
+        <InfoTooltip
+          size="lg"
+          content="A template is reusable — generate it once, then start as many meetings from it as you want."
+        />
+      </div>
 
       <form onSubmit={submit} className="mt-6 space-y-5">
         <div>
@@ -102,11 +104,13 @@ export function NewTemplate() {
         </div>
 
         <div>
-          <label className="text-sm font-medium">Prompt</label>
-          <p className="text-xs text-muted-foreground">
-            Describe the meeting — who it is with, what to cover, what a good
-            outcome looks like. This becomes the agent's briefing.
-          </p>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium">Prompt</label>
+            <InfoTooltip
+              size="sm"
+              content="Describe the meeting — who it is with, what to cover, what a good outcome looks like. This becomes the agent's briefing."
+            />
+          </div>
           <Textarea
             className="mt-1"
             rows={10}
@@ -125,14 +129,15 @@ export function NewTemplate() {
         </div>
 
         <div>
-          <label className="text-sm font-medium">
-            Presentation document (optional)
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Upload a .pptx or .pdf to drive the meeting. Each slide becomes a
-            topic; speaker notes pre-populate so the agent can read them during
-            the meeting.
-          </p>
+          <div className="flex items-center gap-1.5">
+            <label className="text-sm font-medium">
+              Presentation document (optional)
+            </label>
+            <InfoTooltip
+              size="sm"
+              content="Upload a .pptx or .pdf to drive the meeting. Each slide becomes a topic; speaker notes pre-populate so the agent can read them during the meeting."
+            />
+          </div>
           {file ? (
             <div className="mt-2 flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm">
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -170,7 +175,7 @@ export function NewTemplate() {
           />
         </div>
 
-        <div className="flex flex-wrap gap-4">
+        <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[14rem] flex-1">
             <label className="text-sm font-medium">
               Reference template (optional)
@@ -188,7 +193,7 @@ export function NewTemplate() {
               ))}
             </select>
           </div>
-          <div className="w-36">
+          <div className="w-44">
             <label className="text-sm font-medium">Default duration (min)</label>
             <Input
               className="mt-1"
