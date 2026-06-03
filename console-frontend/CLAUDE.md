@@ -20,7 +20,7 @@ console-frontend/
     types.ts                TemplateRecord + MeetingRecord — keep in sync with src/console/models.py
     lib/
       api.ts                fetch wrappers for /api/* + ApiError (carries status code for 401 branching)
-      format.ts             relativeTime, slugify
+      format.ts             relativeTime, formatDateTime, formatTimeOfDay, localDayKey, elapsedSeconds, slugify
     hooks/
       useAuth.ts            calls GET /api/me once on mount → {loading|signed-in|unauthenticated|error}
       usePolling.ts         setInterval helper
@@ -29,7 +29,7 @@ console-frontend/
       useMeetings.ts        dashboard meeting list, polls every 5s
       useMeeting.ts         one meeting, polls 3s only while running
     pages/
-      Dashboard.tsx         two stacked sections: Templates (top) + Meetings (Scheduled/Running/Done); each section heading carries a concept InfoTooltip + a New … button
+      Dashboard.tsx         two stacked sections: Templates (top) + Meetings (a MeetingsCalendar month-view band, then the Scheduled/Running/Done columns); each section heading carries a concept InfoTooltip + a New … button
       Welcome.tsx             one-screen onboarding shown on first visit per tab
       NewTemplate.tsx       the prompt form + optional .pptx/.pdf upload
       NewMeeting.tsx        the single meeting-creation surface: template picker + Start now / Schedule (time + invitees → .ics)
@@ -43,6 +43,7 @@ console-frontend/
       InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
       TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx, ReadyIndicator.tsx
         StatusBadge → a ready template renders ReadyIndicator (a green circle with a check) instead of a "ready" pill; generating/failed stay as pills
+      MeetingsCalendar.tsx  dashboard Meetings widget: shared @ig/ui Calendar (month grid, dot on days with ≥1 meeting) beside a selected-day agenda that groups same-time meetings under one time label; positions each meeting by scheduled_at / dispatched_at / ended_at per status; rows link to /meetings/:id. Shows overlapping meetings at the same slot.
       TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```
 
