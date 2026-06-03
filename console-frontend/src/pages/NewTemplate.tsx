@@ -1,12 +1,15 @@
 import { type ChangeEvent, type FormEvent, useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FileText, Upload, X } from "lucide-react";
-import { Button, Input, Textarea, InfoTooltip } from "@ig/ui";
+import { useNavigate } from "react-router-dom";
+import { FileText, Loader2, Plus, Upload, X } from "lucide-react";
+import { Input, Textarea } from "@ig/ui";
 import {
   createTemplate,
   createTemplateFromDocument,
   listReferenceTemplates,
 } from "@/lib/api";
+import { Page, PageHeader } from "@/components/Page";
+import { Field } from "@/components/Field";
+import { IconButton } from "@/components/IconButton";
 import type { ReferenceTemplate } from "@/types";
 
 const ACCEPTED_EXT = /\.(pptx|pdf)$/i;
@@ -76,24 +79,15 @@ export function NewTemplate() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
-      <Link
-        to="/"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
-        ← Back
-      </Link>
-      <div className="mt-2 flex items-center gap-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight">New template</h1>
-        <InfoTooltip
-          size="lg"
-          content="A template is reusable — generate it once, then start as many meetings from it as you want."
-        />
-      </div>
+    <Page>
+      <PageHeader
+        back
+        title="New template"
+        info="A template is reusable — generate it once, then start as many meetings from it as you want."
+      />
 
-      <form onSubmit={submit} className="mt-6 space-y-5">
-        <div>
-          <label className="text-sm font-medium">Title</label>
+      <form onSubmit={submit} className="max-w-2xl space-y-5">
+        <Field label="Title">
           <Input
             className="mt-1"
             value={title}
@@ -101,16 +95,12 @@ export function NewTemplate() {
             placeholder="Q3 platform design review"
             maxLength={200}
           />
-        </div>
+        </Field>
 
-        <div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-sm font-medium">Prompt</label>
-            <InfoTooltip
-              size="sm"
-              content="Describe the meeting — who it is with, what to cover, what a good outcome looks like. This becomes the agent's briefing."
-            />
-          </div>
+        <Field
+          label="Prompt"
+          info="Describe the meeting — who it is with, what to cover, what a good outcome looks like. This becomes the agent's briefing."
+        >
           <Textarea
             className="mt-1"
             rows={10}
@@ -126,18 +116,12 @@ export function NewTemplate() {
           <p className="mt-1 text-right text-xs text-muted-foreground">
             {sourcePrompt.length} / 16000
           </p>
-        </div>
+        </Field>
 
-        <div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-sm font-medium">
-              Presentation document (optional)
-            </label>
-            <InfoTooltip
-              size="sm"
-              content="Upload a .pptx or .pdf to drive the meeting. Each slide becomes a topic; speaker notes pre-populate so the agent can read them during the meeting."
-            />
-          </div>
+        <Field
+          label="Presentation document (optional)"
+          info="Upload a .pptx or .pdf to drive the meeting. Each slide becomes a topic; speaker notes pre-populate so the agent can read them during the meeting."
+        >
           {file ? (
             <div className="mt-2 flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm">
               <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -173,51 +157,63 @@ export function NewTemplate() {
             className="hidden"
             onChange={onFileChange}
           />
-        </div>
+        </Field>
 
         <div className="flex flex-wrap items-end gap-4">
           <div className="min-w-[14rem] flex-1">
-            <label className="text-sm font-medium">
-              Reference template (optional)
-            </label>
-            <select
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-              className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <option value="">None</option>
-              {references.map((r) => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <Field label="Reference template (optional)">
+              <select
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">None</option>
+                {references.map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
           <div className="w-44">
-            <label className="text-sm font-medium">Default duration (min)</label>
-            <Input
-              className="mt-1"
-              type="number"
-              min={1}
-              max={120}
-              value={defaultTargetMinutes}
-              onChange={(e) => setDefaultTargetMinutes(Number(e.target.value))}
-            />
+            <Field label="Default duration (min)">
+              <Input
+                className="mt-1"
+                type="number"
+                min={1}
+                max={120}
+                value={defaultTargetMinutes}
+                onChange={(e) => setDefaultTargetMinutes(Number(e.target.value))}
+              />
+            </Field>
           </div>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <Button type="submit" disabled={!valid || submitting}>
-          {submitting
-            ? file
-              ? "Uploading & generating…"
-              : "Creating…"
-            : file
-              ? "Create from document"
-              : "Create template"}
-        </Button>
+        <IconButton
+          type="submit"
+          disabled={!valid || submitting}
+          label={
+            submitting
+              ? file
+                ? "Uploading & generating…"
+                : "Creating…"
+              : file
+                ? "Create from document"
+                : "Create template"
+          }
+        >
+          {submitting ? (
+            <Loader2 className="animate-spin" />
+          ) : file ? (
+            <Upload />
+          ) : (
+            <Plus />
+          )}
+        </IconButton>
       </form>
-    </div>
+    </Page>
   );
 }

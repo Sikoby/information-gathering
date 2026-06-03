@@ -9,6 +9,7 @@ import {
   CardTitle,
   Separator,
 } from "@ig/ui";
+import { Page } from "@/components/Page";
 
 export function Welcome() {
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ export function Welcome() {
   }, []);
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-12 space-y-12">
+    <Page className="py-12 space-y-12">
       <div className="flex justify-end">
         <Button variant="ghost" size="sm" onClick={dismiss}>
           Skip
@@ -99,14 +100,18 @@ export function Welcome() {
         </h2>
         <div className="mt-4 grid gap-8 md:grid-cols-2">
           <div>
-            <h3 className="text-base font-semibold">Template</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              Template
+            </h3>
             <p className="mt-2 text-muted-foreground">
               The reusable definition. Generated once, then edited freely. One
               template can spawn many meetings.
             </p>
           </div>
           <div>
-            <h3 className="text-base font-semibold">Meeting</h3>
+            <h3 className="text-sm font-semibold text-muted-foreground">
+              Meeting
+            </h3>
             <p className="mt-2 text-muted-foreground">
               A live, AI-run instance of a template. Goes from running to done.
               Only one runs at a time.
@@ -118,7 +123,7 @@ export function Welcome() {
 
       <section>
         <h2 className="text-lg font-semibold tracking-tight">How it works</h2>
-        <ol className="mt-4 list-decimal pl-6 space-y-2 text-base">
+        <ol className="mt-4 list-decimal space-y-2 pl-6 text-muted-foreground">
           <li>Create a template — from a prompt, a PowerPoint, or a PDF.</li>
           <li>
             Edit the topics, questions, and speaker notes until it reads right.
@@ -135,6 +140,6 @@ export function Welcome() {
           Got it, take me to the dashboard
         </Button>
       </section>
-    </div>
+    </Page>
   );
 }

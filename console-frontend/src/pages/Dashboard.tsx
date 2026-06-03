@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Button, InfoTooltip } from "@ig/ui";
+import { Plus } from "lucide-react";
+import { InfoTooltip } from "@ig/ui";
+import { Page } from "@/components/Page";
+import { IconButton } from "@/components/IconButton";
 import { useTemplates } from "@/hooks/useTemplates";
 import { useMeetings } from "@/hooks/useMeetings";
 import { TemplateCard } from "@/components/TemplateCard";
@@ -32,7 +35,7 @@ export function Dashboard() {
   }, [templates]);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8 space-y-12">
+    <Page className="space-y-12">
       <section>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -42,9 +45,11 @@ export function Dashboard() {
               content="A template is a reusable meeting definition — generate it once, then start as many meetings from it as you want."
             />
           </div>
-          <Button asChild>
-            <Link to="/templates/new">New template</Link>
-          </Button>
+          <IconButton asChild label="New template">
+            <Link to="/templates/new">
+              <Plus />
+            </Link>
+          </IconButton>
         </div>
         {templatesError && (
           <p className="mt-4 text-sm text-destructive">{templatesError}</p>
@@ -71,9 +76,11 @@ export function Dashboard() {
               content="A meeting is a live, AI-run instance of a template. It goes from running to done; only one runs at a time."
             />
           </div>
-          <Button asChild>
-            <Link to="/meetings/new">New meeting</Link>
-          </Button>
+          <IconButton asChild label="New meeting">
+            <Link to="/meetings/new">
+              <Plus />
+            </Link>
+          </IconButton>
         </div>
         {meetingsError && (
           <p className="mt-4 text-sm text-destructive">{meetingsError}</p>
@@ -108,6 +115,6 @@ export function Dashboard() {
           })}
         </div>
       </section>
-    </div>
+    </Page>
   );
 }

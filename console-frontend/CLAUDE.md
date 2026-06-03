@@ -36,6 +36,11 @@ console-frontend/
       TemplateDetail.tsx    generating spinner / failed / editor + "Start meeting" (routes to /meetings/new?template=<id>); Prompt/Template headings carry concept InfoTooltips
       MeetingDetail.tsx     slim scheduled/live/done view with "open source template" link + copy-link / add-to-calendar buttons
     components/
+      Page.tsx              Page (max-w-6xl px-6 py-8 outer container) + PageHeader (back-link + title + badge + info) + BackLink + CenteredMessage (loading/error box)
+      IconButton.tsx        the icon-only Button wrapper every button uses — required `label` → aria-label + title tooltip; sizes "default" (h-9 w-9) / "sm" (h-8 w-8, smaller glyph)
+      Field.tsx             labelled form field: label + optional info tooltip + control + optional hint
+      LinkField.tsx         read-only URL Input + Copy + Open-in-new-tab, built on Field
+      InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
       TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx
       TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```
@@ -75,6 +80,54 @@ The user dislikes visually noisy editor UI. Follow these rules everywhere in thi
 - **Header first, true collapse.** For any expandable item, the row's title is the first thing visible and is the *only* thing visible when collapsed. Body, notes, metadata, and children all live below the title and disappear together when the row is collapsed.
 - **Don't editorialise field labels.** Keep them short ("Speaker notes", not "Speaker notes · hidden from participants"). Explain hidden-from-participants / similar context in the placeholder or helper text instead.
 
+### Page layout
+
+- **Every page is wrapped in `<Page>`** (`mx-auto max-w-6xl px-6 py-8`) so its left/right gutters line up with the shared `Header`/`Footer` (also `max-w-6xl px-6`). Never hand-roll the outer container width — drift here is exactly what made the old pages stop aligning with the header brand.
+- **Page chrome goes through `<PageHeader back title badge info>`.** It renders the optional back-link, the `h1` page title, an optional status `Badge`, and an optional `InfoTooltip`. It is the only place a page title is styled, so the heading scale can't drift.
+- **Forms sit in a left-aligned readable column.** Wrap the form body in `max-w-2xl` *inside* `<Page>` (don't narrow the whole page) so the title and back-link still align to the header's left edge while inputs stay a comfortable width. Card-grid pages (Dashboard) keep the full `max-w-6xl`.
+- Loading / error states use `<CenteredMessage>`, never a bespoke centered box.
+
+### Buttons are strict icon-only
+
+Every button in this app is a **square icon button** rendered through `IconButton`. No visible button text. The required `label` prop becomes both the `aria-label` and the native `title` (hover tooltip) — that is how an icon-only action stays discoverable. Children are exactly one lucide icon.
+
+Colour encodes the button's *role*, and is the same for that role on every page:
+
+| Role | `variant` | Example actions |
+| --- | --- | --- |
+| Primary / commit | `default` (filled) | New, Create, Start meeting, Schedule, Retry generation, Go to meeting, Add to calendar |
+| Secondary | `outline` | Save, Regenerate, Copy, Open in new tab |
+| Navigation / dismiss | `ghost` | Back, Cancel, Back to dashboard |
+| Danger | `ghost` + `text-destructive` | every Delete (subtle — never a filled red button) |
+
+One icon per action, used the same way everywhere:
+
+| Action | Icon | Action | Icon |
+| --- | --- | --- | --- |
+| New | `Plus` | Back | `ArrowLeft` |
+| Create from document | `Upload` | Go / next | `ArrowRight` |
+| Start (now) | `Play` | Back to dashboard | `LayoutDashboard` |
+| Schedule | `CalendarClock` | Cancel / remove file | `X` |
+| Save | `Save` → `Check` when saved | Add topic | `ListPlus` |
+| Regenerate | `RefreshCw` | Add question | `MessageSquarePlus` |
+| Retry | `RotateCw` | Kind = Topic | `ListTree` |
+| Delete | `Trash2` | Kind = Question | `CircleHelp` |
+| Copy | `Copy` → `Check` when copied | Add to calendar | `CalendarPlus` |
+| Open / live view | `ExternalLink` | Join (voice) | `Video` |
+| Busy / in-flight | `Loader2` (`animate-spin`) | | |
+
+When two buttons share an icon (the two Copy buttons, the `Plus` on both dashboard cards), the `label`/tooltip disambiguates them. A busy action swaps its icon for a spinning `Loader2` and updates its `label` ("Saving…", "Starting…").
+
+**The only text exception** is the two onboarding CTAs on `Welcome` ("Skip", "Got it, take me to the dashboard") — a first-run screen where a bare icon would be cryptic. Everything that is *not* a button keeps its text: `DropdownMenuItem` rows (the Sign out item), the file-upload `<label>` dropzone, `<select>` menus, and inline text links inside `Alert`s or status lines (e.g. "another meeting is running →").
+
+### Use the shared console components — don't re-implement
+
+Reach for these before writing new markup; they exist so structure, spacing, and button styling can't drift:
+
+`Page`, `PageHeader`, `BackLink`, `CenteredMessage` (layout) · `Field`, `LinkField`, `InviteesList` (forms) · `IconButton`, `CopyButton` (buttons). If a third or fourth page needs the same block, promote it into `components/` rather than copy-pasting.
+
+> These design rules are **console-scoped**. The in-meeting viewer (`../frontend/`) intentionally uses a different visual language (dashboard aesthetic, mono timers, visible run ids) — don't apply these rules there, and don't pull these components across.
+
 ## Verify changes
 
-`npm run build -w console-frontend` for a clean compile, then `docker compose build console-frontend && docker compose up -d` and open `http://localhost:8769`.
+`npm run build -w console-frontend` (`tsc -b && vite build`) is the gate — it catches every missing import/prop from a refactor. Then `docker compose build console-frontend && docker compose up -d` and open `http://localhost:8769`. Spot-check: every button is an icon whose hover tooltip names the action, and each page's title / back-link left edge lines up with the header brand.
