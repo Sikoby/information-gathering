@@ -87,7 +87,9 @@ function AuthGate({ children }: { children: ReactNode }) {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              onSelect={() => window.location.assign("/cdn-cgi/access/logout")}
+              onSelect={() =>
+                window.location.assign(auth.logoutUrl ?? "/cdn-cgi/access/logout")
+              }
             >
               <LogOut />
               Sign out

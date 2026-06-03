@@ -38,6 +38,8 @@ Every `/api/*` request runs through [`auth.py`](auth.py) middleware which reads 
 
 Templates and meetings each carry an `owner_email`. List endpoints scope to the caller's per-user index; per-id endpoints return `404` on owner mismatch (not `403`, so we don't leak existence). The one-meeting-at-a-time guard is **per user**, locked on `console:start:lock:<email>`.
 
+`auth.py` also builds the team-domain logout URL returned by `GET /api/me` from the `CONSOLE_CF_TEAM_DOMAIN` env var. The per-application logout (`<app-domain>/cdn-cgi/access/logout`) can fail with "Unable to find your Access organization!"; the team-domain URL is hosted on the org and always resolves.
+
 Background tasks (`generation.py`, `reconcile.py`) do not pass through the middleware and operate on the global indexes (`templates:index`, `meetings:index`).
 
 ## Endpoints
@@ -67,7 +69,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 
 | Route | Behavior |
 | --- | --- |
-| `GET /api/me` | `{email}` — the resolved Cloudflare Access / dev-fallback email. SPA uses this for the signed-in indicator + 401 detection. |
+| `GET /api/me` | `{email, logout_url}` — the resolved Cloudflare Access / dev-fallback email plus the team-domain logout URL (`https://<team>.cloudflareaccess.com/cdn-cgi/access/logout`, from `CONSOLE_CF_TEAM_DOMAIN`; `null` when unset, e.g. local dev). SPA uses this for the signed-in indicator, 401 detection, and the Sign out link. |
 | `GET /api/reference-templates` | The four built-in templates, for the create form (a generation hint, not promoted into the `template:*` keyspace). |
 | `GET /healthz` | `200` iff Redis ping succeeds. Bypasses the auth middleware. |
 
@@ -103,6 +105,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `WEBAPP_PUBLIC_URL` | optional (default `http://localhost:8765`) | not used directly; dispatch builds the webapp URL. |
 | `CONSOLE_PORT` | optional (default 8770) | aiohttp listen port. |
 | `CONSOLE_DEV_USER_EMAIL` | optional (unset → 401) | Local-dev identity fallback when `Cf-Access-Authenticated-User-Email` is absent. Compose default is `dev@local`; left empty in `docker-compose.prod.yml`. |
+| `CONSOLE_CF_TEAM_DOMAIN` | optional (unset → `logout_url` is `null`) | Cloudflare Zero Trust team name (`myteam`) or full host (`myteam.cloudflareaccess.com`); backs the `GET /api/me` `logout_url`. Set it in `.env` (the console loads it via `env_file`). |
 | `CONSOLE_GEN_MAX_ITERATIONS` | optional (default 3) | passed to template-generator. |
 | `CONSOLE_RECONCILE_INTERVAL` | optional (default 15) | reconcile period, seconds. |
 | `CONSOLE_STARTUP_GRACE_MIN` | optional (default 5) | agent-never-started grace window. |

@@ -22,7 +22,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..templates import TEMPLATES
 from ..templates.schema import Template
-from . import clients, generation, registry
+from . import auth, clients, generation, registry
 from .models import (
     MeetingRecord,
     MeetingStartFromTemplate,
@@ -465,8 +465,14 @@ async def get_reference_templates(_request: web.Request) -> web.Response:
 
 async def get_me(request: web.Request) -> web.Response:
     """Identity probe for the SPA — echoes the authenticated email back so
-    the frontend can render `signed in as <email>` and detect 401."""
-    return web.json_response({"email": request["user_email"]})
+    the frontend can render `signed in as <email>` and detect 401, plus the
+    Cloudflare Access logout URL (team-domain; null in local dev)."""
+    return web.json_response(
+        {
+            "email": request["user_email"],
+            "logout_url": auth.resolve_logout_url(),
+        }
+    )
 
 
 async def get_healthz(_request: web.Request) -> web.Response:

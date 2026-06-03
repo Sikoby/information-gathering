@@ -25,6 +25,8 @@ services:
       WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
       # Cloudflare Access supplies the identity in prod — no dev fallback.
       CONSOLE_DEV_USER_EMAIL: ""
+      # CONSOLE_CF_TEAM_DOMAIN (Sign out logout URL) is read from .env via the
+      # console service's env_file in the base compose — set it there.
 
   console-frontend:
     ports: !reset []

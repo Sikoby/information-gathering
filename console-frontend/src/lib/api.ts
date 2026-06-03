@@ -30,7 +30,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 
 // -------------------------------------------------------------------- me
 
-export function getMe(): Promise<{ email: string }> {
+export function getMe(): Promise<{ email: string; logout_url: string | null }> {
   return req("/api/me");
 }
 

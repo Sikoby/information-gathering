@@ -3,7 +3,7 @@ import { ApiError, getMe } from "@/lib/api";
 
 type AuthState =
   | { status: "loading" }
-  | { status: "signed-in"; email: string }
+  | { status: "signed-in"; email: string; logoutUrl: string | null }
   | { status: "unauthenticated" }
   | { status: "error"; message: string };
 
@@ -17,8 +17,9 @@ export function useAuth(): AuthState {
   useEffect(() => {
     let cancelled = false;
     getMe()
-      .then(({ email }) => {
-        if (!cancelled) setState({ status: "signed-in", email });
+      .then(({ email, logout_url }) => {
+        if (!cancelled)
+          setState({ status: "signed-in", email, logoutUrl: logout_url });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
