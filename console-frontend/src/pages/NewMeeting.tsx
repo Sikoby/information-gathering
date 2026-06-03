@@ -8,7 +8,7 @@ import {
   Play,
   X,
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Input, Textarea } from "@ig/ui";
+import { Alert, AlertDescription, AlertTitle, Calendar, Input, Textarea } from "@ig/ui";
 import { useTemplates } from "@/hooks/useTemplates";
 import {
   meetingInviteIcsUrl,
@@ -34,13 +34,12 @@ function parseInvitees(raw: string): string[] {
     .filter(Boolean);
 }
 
-/** Local-time value for a `<input type="datetime-local">` (no seconds). */
-function toLocalInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
+/** Merge a picked calendar day with an `HH:mm` time string into one Date. */
+function combineDayTime(day: Date, time: string): Date {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date(day);
+  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
 }
 
 export function NewMeeting() {
@@ -59,15 +58,20 @@ export function NewMeeting() {
   const [title, setTitle] = useState("");
   // null = "follow the template default"; a number once the user edits it.
   const [minutes, setMinutes] = useState<number | null>(null);
-  const [scheduledAt, setScheduledAt] = useState(""); // datetime-local value
+  const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined);
+  const [scheduledTime, setScheduledTime] = useState("09:00");
   const [invitees, setInvitees] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MeetingRecord | null>(null);
 
-  // Floor the picker at "now" so the obvious mistake (a past time) can't be
-  // entered; the backend re-checks against its own clock.
-  const minLocal = useMemo(() => toLocalInputValue(new Date()), []);
+  // Floor the calendar at today so past days can't be picked; the backend
+  // re-checks the full instant against its own clock.
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   // Pick an initial template once the list loads (the ?template= deep link, or
   // the newest ready one). Runs once — guarded on templateId being empty.
@@ -104,12 +108,12 @@ export function NewMeeting() {
   };
 
   const onSchedule = async () => {
-    if (!selected || !scheduledAt) return;
+    if (!selected || !scheduledDay) return;
     setBusy(true);
     setError(null);
     try {
       const meeting = await scheduleMeetingFromTemplate(selected.template_id, {
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: combineDayTime(scheduledDay, scheduledTime).toISOString(),
         title_override: title.trim() || undefined,
         target_minutes: targetOverride,
         invitees: parseInvitees(invitees),
@@ -203,13 +207,35 @@ export function NewMeeting() {
               {mode === "schedule" && (
                 <>
                   <Field label="Start time">
-                    <Input
-                      className="mt-1 w-64"
-                      type="datetime-local"
-                      min={minLocal}
-                      value={scheduledAt}
-                      onChange={(e) => setScheduledAt(e.target.value)}
-                    />
+                    <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <Calendar
+                        mode="single"
+                        selected={scheduledDay}
+                        onSelect={setScheduledDay}
+                        disabled={{ before: today }}
+                        className="rounded-md border p-3"
+                      />
+                      <div className="space-y-1.5">
+                        <label className="text-sm font-medium">Time</label>
+                        <Input
+                          type="time"
+                          className="w-36"
+                          value={scheduledTime}
+                          onChange={(e) => setScheduledTime(e.target.value)}
+                        />
+                        {scheduledDay && (
+                          <p className="text-sm text-muted-foreground">
+                            Starts{" "}
+                            {formatDateTime(
+                              combineDayTime(
+                                scheduledDay,
+                                scheduledTime,
+                              ).toISOString(),
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </Field>
 
                   <Field
@@ -250,7 +276,7 @@ export function NewMeeting() {
                 ) : (
                   <IconButton
                     onClick={onSchedule}
-                    disabled={busy || !selected || !scheduledAt}
+                    disabled={busy || !selected || !scheduledDay}
                     label={busy ? "Scheduling…" : "Schedule meeting"}
                   >
                     <CalendarClock />
