@@ -3,8 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle, Button } from "@ig/ui";
 import { useMeeting } from "@/hooks/useMeeting";
 import { useTemplate } from "@/hooks/useTemplate";
-import { deleteMeeting } from "@/lib/api";
+import { deleteMeeting, meetingInviteIcsUrl } from "@/lib/api";
+import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatDateTime } from "@/lib/format";
 import type { MeetingRecord } from "@/types";
 
 function Centered({ children }: { children: ReactNode }) {
@@ -60,17 +62,17 @@ export function MeetingDetail() {
         <p className="mt-3 text-sm text-destructive">{actionError}</p>
       )}
 
-      <RunningOrDoneView
+      <MeetingView
         meeting={meeting}
         templateTitle={template?.title ?? null}
         busy={busy}
-        onDelete={meeting.status === "done" ? onDelete : undefined}
+        onDelete={meeting.status !== "running" ? onDelete : undefined}
       />
     </div>
   );
 }
 
-function RunningOrDoneView({
+function MeetingView({
   meeting,
   templateTitle,
   busy,
@@ -81,8 +83,20 @@ function RunningOrDoneView({
   busy: string | null;
   onDelete?: () => void;
 }) {
+  const scheduled = meeting.status === "scheduled";
   return (
     <div className="mt-6 space-y-5">
+      {scheduled && (
+        <Alert>
+          <AlertTitle>Meeting scheduled</AlertTitle>
+          <AlertDescription>
+            {meeting.scheduled_at
+              ? `Starts ${formatDateTime(meeting.scheduled_at)}. `
+              : ""}
+            It starts automatically at that time.
+          </AlertDescription>
+        </Alert>
+      )}
       {meeting.status === "running" && (
         <Alert>
           <AlertTitle>Meeting in progress</AlertTitle>
@@ -101,19 +115,32 @@ function RunningOrDoneView({
       )}
 
       <div className="flex flex-wrap gap-2">
-        {meeting.status === "running" && meeting.join_url && (
+        {scheduled && (
           <Button asChild>
-            <a href={meeting.join_url} target="_blank" rel="noreferrer">
-              Join meeting
+            <a href={meetingInviteIcsUrl(meeting.meeting_id)} download>
+              Add to calendar (.ics)
             </a>
           </Button>
         )}
-        {meeting.webapp_url && (
+        {meeting.status === "running" && meeting.join_url && (
+          <>
+            <Button asChild>
+              <a href={meeting.join_url} target="_blank" rel="noreferrer">
+                Join meeting
+              </a>
+            </Button>
+            <CopyButton value={meeting.join_url} label="Copy join link" />
+          </>
+        )}
+        {!scheduled && meeting.webapp_url && (
           <Button variant="outline" asChild>
             <a href={meeting.webapp_url} target="_blank" rel="noreferrer">
               Open live view
             </a>
           </Button>
+        )}
+        {meeting.webapp_url && (
+          <CopyButton value={meeting.webapp_url} label="Copy live link" />
         )}
         {onDelete && (
           <Button
@@ -128,6 +155,9 @@ function RunningOrDoneView({
       </div>
 
       <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+        {scheduled && meeting.scheduled_at && (
+          <Info label="Start time" value={formatDateTime(meeting.scheduled_at)} />
+        )}
         <Info label="Duration" value={`${meeting.target_minutes} min`} />
         <Info
           label="Source template"
@@ -135,6 +165,19 @@ function RunningOrDoneView({
           to={`/templates/${meeting.template_id}`}
         />
       </dl>
+
+      {scheduled && meeting.invitees.length > 0 && (
+        <div>
+          <p className="text-sm font-medium">
+            Invitees ({meeting.invitees.length})
+          </p>
+          <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
+            {meeting.invitees.map((email) => (
+              <li key={email}>{email}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

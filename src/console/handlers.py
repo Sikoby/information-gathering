@@ -14,6 +14,9 @@ The console serves two resource types:
 from __future__ import annotations
 
 import json
+import os
+import re
+from datetime import datetime, timezone
 from typing import TypeVar
 
 from aiohttp import web
@@ -22,9 +25,10 @@ from pydantic import BaseModel, ValidationError
 
 from ..templates import TEMPLATES
 from ..templates.schema import Template
-from . import auth, clients, generation, registry
+from . import auth, clients, generation, ics, invites, registry
 from .models import (
     MeetingRecord,
+    MeetingScheduleFromTemplate,
     MeetingStartFromTemplate,
     TemplateCreate,
     TemplatePatch,
@@ -35,6 +39,26 @@ from .models import (
 
 _START_LOCK_PREFIX = "console:start:lock:"
 _START_LOCK_TTL_SECONDS = 5
+
+
+def _webapp_public_url() -> str:
+    return os.environ.get("WEBAPP_PUBLIC_URL", "http://localhost:8765").rstrip("/")
+
+
+def _parse_iso(value: str) -> datetime:
+    s = value.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _ics_filename(summary: str) -> str:
+    """Slugify the title into a safe ASCII .ics filename (no quotes/CRLF)."""
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", summary).strip("-").lower()
+    return slug or "meeting-invite"
 
 _T = TypeVar("_T", bound=BaseModel)
 
@@ -420,6 +444,66 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
     return web.json_response(rec.model_dump(mode="json"), status=201)
 
 
+async def post_template_schedule_meeting(request: web.Request) -> web.Response:
+    """Schedule a future meeting from a template.
+
+    Unlike start-now, this does NOT dispatch and does NOT apply the
+    one-at-a-time guard (future meetings don't conflict yet). The reconcile
+    loop dispatches it when `scheduled_at` arrives. The record is given a
+    deterministic `webapp_url` immediately so the invite has a stable link
+    before dispatch mints the real voice-join URL.
+    """
+    template_id = request.match_info["template_id"]
+    email = request["user_email"]
+    payload = await _parse_body(request, MeetingScheduleFromTemplate)
+    if isinstance(payload, web.Response):
+        return payload
+
+    tmpl = await _load_owned_template(request)
+    if isinstance(tmpl, web.Response):
+        return tmpl
+    if tmpl.template_status != "ready" or tmpl.template is None:
+        return web.json_response(
+            {"error": f"template is not ready (status={tmpl.template_status})"},
+            status=424,
+        )
+
+    # scheduled_at is format-normalized to a UTC instant by the model; the
+    # future check is time-relative so it lives here.
+    if _parse_iso(payload.scheduled_at) <= datetime.now(timezone.utc):
+        return web.json_response(
+            {"error": "scheduled_at must be in the future"}, status=400
+        )
+
+    meeting_id = registry.new_meeting_id()
+    target_minutes = payload.target_minutes or tmpl.default_target_minutes
+    now = registry.now_iso()
+    rec = MeetingRecord(
+        meeting_id=meeting_id,
+        owner_email=email,
+        template_id=template_id,
+        title_override=payload.title_override,
+        target_minutes=target_minutes,
+        status="scheduled",
+        scheduled_at=payload.scheduled_at,
+        invitees=payload.invitees,
+        webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
+        created_at=now,
+        updated_at=now,
+    )
+    await registry.create(rec)
+    await invites.send_invites(rec)  # placeholder: logged no-op until SMTP lands
+    logger.info(
+        "scheduled meeting_id={} owner={} template_id={} at={} invitees={}",
+        meeting_id,
+        email,
+        template_id,
+        payload.scheduled_at,
+        len(payload.invitees),
+    )
+    return web.json_response(rec.model_dump(mode="json"), status=201)
+
+
 # =============================================================== meetings
 
 
@@ -435,6 +519,36 @@ async def get_meeting(request: web.Request) -> web.Response:
     if isinstance(rec, web.Response):
         return rec
     return web.json_response(rec.model_dump(mode="json"))
+
+
+async def get_meeting_invite_ics(request: web.Request) -> web.Response:
+    """Download an `.ics` calendar invite for a scheduled meeting.
+
+    Owner-scoped (404 on mismatch, so other users' meetings stay invisible).
+    Only a scheduled meeting carries a start time, so a meeting without
+    `scheduled_at` returns 409. This is the download endpoint; the future
+    email step (see invites.py) attaches the same payload.
+    """
+    rec = await _load_owned_meeting(request)
+    if isinstance(rec, web.Response):
+        return rec
+    if not rec.scheduled_at:
+        return web.json_response(
+            {"error": "meeting has no scheduled time"}, status=409
+        )
+
+    tmpl = await registry.get_template(rec.template_id)
+    summary = rec.title_override or (tmpl.title if tmpl else None) or "Meeting"
+    body = ics.build_event(rec, summary=summary, organizer_email=rec.owner_email)
+    return web.Response(
+        text=body,
+        content_type="text/calendar",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{_ics_filename(summary)}.ics"'
+            )
+        },
+    )
 
 
 async def delete_meeting(request: web.Request) -> web.Response:

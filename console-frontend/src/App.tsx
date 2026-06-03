@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Dashboard } from "@/pages/Dashboard";
 import { NewTemplate } from "@/pages/NewTemplate";
 import { TemplateDetail } from "@/pages/TemplateDetail";
+import { NewMeeting } from "@/pages/NewMeeting";
 import { MeetingDetail } from "@/pages/MeetingDetail";
 import { Welcome } from "@/pages/Welcome";
 
@@ -115,6 +116,7 @@ export default function App() {
           <Route path="/welcome" element={<Welcome />} />
           <Route path="/templates/new" element={<NewTemplate />} />
           <Route path="/templates/:id" element={<TemplateDetail />} />
+          <Route path="/meetings/new" element={<NewMeeting />} />
           <Route path="/meetings/:id" element={<MeetingDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

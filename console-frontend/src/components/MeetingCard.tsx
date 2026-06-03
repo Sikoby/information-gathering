@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Card } from "@ig/ui";
 import type { MeetingRecord } from "@/types";
-import { relativeTime } from "@/lib/format";
+import { formatDateTime, relativeTime } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
 
 export function MeetingCard({
@@ -28,7 +28,9 @@ export function MeetingCard({
           <span>{meeting.target_minutes} min</span>
           <span aria-hidden>·</span>
           <span>
-            {relativeTime(meeting.ended_at ?? meeting.created_at)}
+            {meeting.status === "scheduled" && meeting.scheduled_at
+              ? formatDateTime(meeting.scheduled_at)
+              : relativeTime(meeting.ended_at ?? meeting.created_at)}
           </span>
         </div>
       </Card>

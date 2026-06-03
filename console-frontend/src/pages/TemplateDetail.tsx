@@ -1,14 +1,13 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileText, Loader2 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Badge, Button, InfoTooltip, Input, Textarea } from "@ig/ui";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, InfoTooltip, Textarea } from "@ig/ui";
 import { useTemplate } from "@/hooks/useTemplate";
 import { useMeetings } from "@/hooks/useMeetings";
 import {
   deleteTemplate,
   patchTemplate,
   regenerateTemplate,
-  startMeetingFromTemplate,
 } from "@/lib/api";
 import { elapsedSeconds } from "@/lib/format";
 import { TemplateEditor } from "@/components/TemplateEditor";
@@ -49,7 +48,6 @@ export function TemplateDetail() {
   const [draftKey, setDraftKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [startOpen, setStartOpen] = useState(false);
 
   useEffect(() => {
     if (!template) return;
@@ -128,24 +126,9 @@ export function TemplateDetail() {
     }
   };
 
-  const onStart = async (opts: {
-    title_override?: string;
-    target_minutes?: number;
-  }) => {
+  const onStartMeeting = async () => {
     if (!(await saveDraft())) return;
-    setBusy("start");
-    setActionError(null);
-    try {
-      const meeting = await startMeetingFromTemplate(
-        template.template_id,
-        opts,
-      );
-      navigate(`/meetings/${meeting.meeting_id}`);
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+    navigate(`/meetings/new?template=${template.template_id}`);
   };
 
   return (
@@ -196,24 +179,12 @@ export function TemplateDetail() {
           approved={template.template_approved}
           runningMeeting={runningMeeting?.meeting_id ?? null}
           onSave={saveDraft}
-          onOpenStart={() => setStartOpen(true)}
+          onOpenStart={onStartMeeting}
           onRegenerate={onRegenerate}
           onDelete={onDelete}
         />
       )}
 
-      {startOpen && draft && (
-        <StartMeetingDialog
-          defaultTitle={draft.title}
-          defaultTargetMinutes={draft.default_target_minutes}
-          busy={busy === "start"}
-          onCancel={() => setStartOpen(false)}
-          onSubmit={async (opts) => {
-            setStartOpen(false);
-            await onStart(opts);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -408,87 +379,3 @@ function ReadyEditor({
   );
 }
 
-function StartMeetingDialog({
-  defaultTitle,
-  defaultTargetMinutes,
-  busy,
-  onCancel,
-  onSubmit,
-}: {
-  defaultTitle: string;
-  defaultTargetMinutes: number;
-  busy: boolean;
-  onCancel: () => void;
-  onSubmit: (opts: {
-    title_override?: string;
-    target_minutes?: number;
-  }) => void;
-}) {
-  const [titleOverride, setTitleOverride] = useState("");
-  const [targetMinutes, setTargetMinutes] = useState(defaultTargetMinutes);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold">Start meeting</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Launch this template as a new meeting. The template stays put — you
-          can start more meetings from it later.
-        </p>
-
-        <div className="mt-5 space-y-4">
-          <div>
-            <label className="text-sm font-medium">Title (optional)</label>
-            <Input
-              className="mt-1"
-              value={titleOverride}
-              onChange={(e) => setTitleOverride(e.target.value)}
-              placeholder={defaultTitle}
-              maxLength={200}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Defaults to the template title.
-            </p>
-          </div>
-          <div className="w-36">
-            <label className="text-sm font-medium">Duration (min)</label>
-            <Input
-              className="mt-1"
-              type="number"
-              min={1}
-              max={120}
-              value={targetMinutes}
-              onChange={(e) => setTargetMinutes(Number(e.target.value))}
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2">
-          <Button variant="ghost" onClick={onCancel} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            disabled={busy}
-            onClick={() =>
-              onSubmit({
-                title_override: titleOverride.trim() || undefined,
-                target_minutes:
-                  targetMinutes && targetMinutes !== defaultTargetMinutes
-                    ? targetMinutes
-                    : undefined,
-              })
-            }
-          >
-            {busy ? "Starting…" : "Start meeting"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -13,12 +13,13 @@ Two record types live in Redis:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
-MeetingStatus = Literal["running", "done"]
+MeetingStatus = Literal["scheduled", "running", "done"]
 TemplateStatus = Literal["generating", "ready", "failed"]
 
 _PROMPT_MAX = 16_000
@@ -56,7 +57,16 @@ class TemplateRecord(BaseModel):
 
 
 class MeetingRecord(BaseModel):
-    """A meeting instance stored (as JSON) at `meeting:<meeting_id>`."""
+    """A meeting instance stored (as JSON) at `meeting:<meeting_id>`.
+
+    A meeting is born `running` (start-now) or `scheduled` (a future start);
+    a scheduled meeting carries `scheduled_at` + `invitees` and is dispatched
+    later by the reconcile loop when its start time arrives.
+
+    `invitees` is stored as an embedded JSON *string* (see registry) so the
+    atomic Lua merge never round-trips the list through cjson — which would
+    collapse an empty list to `{}` and corrupt the record.
+    """
 
     meeting_id: str
     owner_email: str
@@ -65,6 +75,10 @@ class MeetingRecord(BaseModel):
     target_minutes: int = 30
 
     status: MeetingStatus = "running"
+
+    scheduled_at: str | None = None
+    invitees: list[str] = Field(default_factory=list)
+    invite_sent_at: str | None = None
 
     run_id: str | None = None
     room: str | None = None
@@ -108,3 +122,53 @@ class MeetingStartFromTemplate(BaseModel):
 
     title_override: str | None = Field(default=None, min_length=1, max_length=_TITLE_MAX)
     target_minutes: int | None = Field(default=None, ge=1, le=120)
+
+
+_INVITEES_MAX = 100
+
+
+class MeetingScheduleFromTemplate(BaseModel):
+    """`POST /api/templates/{id}/scheduled-meetings` body.
+
+    `scheduled_at` is required and normalized to a UTC ISO instant; the
+    handler enforces that it is in the future (time-relative, so it does not
+    belong in the schema). `invitees` are cleaned, lowercased, and deduped.
+    """
+
+    scheduled_at: str
+    title_override: str | None = Field(default=None, min_length=1, max_length=_TITLE_MAX)
+    target_minutes: int | None = Field(default=None, ge=1, le=120)
+    invitees: list[str] = Field(default_factory=list)
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def _normalize_scheduled_at(cls, v: str) -> str:
+        s = v.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError as e:
+            raise ValueError("scheduled_at must be an ISO 8601 datetime") from e
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat()
+
+    @field_validator("invitees")
+    @classmethod
+    def _clean_invitees(cls, v: list[str]) -> list[str]:
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in v:
+            email = raw.strip().lower()
+            if not email:
+                continue
+            local, _, domain = email.partition("@")
+            if not local or "." not in domain:
+                raise ValueError(f"invalid invitee email: {raw!r}")
+            if email not in seen:
+                seen.add(email)
+                out.append(email)
+        if len(out) > _INVITEES_MAX:
+            raise ValueError(f"too many invitees (max {_INVITEES_MAX})")
+        return out

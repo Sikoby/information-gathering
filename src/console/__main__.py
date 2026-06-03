@@ -23,7 +23,7 @@ async def _on_startup(app: web.Application) -> None:
     app["http_session"] = aiohttp.ClientSession()
     app["reconcile_stop"] = asyncio.Event()
     app["reconcile_task"] = asyncio.create_task(
-        reconcile.run_loop(app["reconcile_stop"])
+        reconcile.run_loop(app["reconcile_stop"], app["http_session"])
     )
     logger.info("console started")
 
@@ -69,8 +69,16 @@ def build_app() -> web.Application:
         "/api/templates/{template_id}/meetings",
         handlers.post_template_start_meeting,
     )
+    app.router.add_post(
+        "/api/templates/{template_id}/scheduled-meetings",
+        handlers.post_template_schedule_meeting,
+    )
     app.router.add_get("/api/meetings", handlers.get_meetings)
     app.router.add_get("/api/meetings/{meeting_id}", handlers.get_meeting)
+    app.router.add_get(
+        "/api/meetings/{meeting_id}/invite.ics",
+        handlers.get_meeting_invite_ics,
+    )
     app.router.add_delete(
         "/api/meetings/{meeting_id}", handlers.delete_meeting
     )
