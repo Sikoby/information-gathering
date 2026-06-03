@@ -1,7 +1,16 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FileText, Loader2 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Badge, Button, InfoTooltip, Textarea } from "@ig/ui";
+import {
+  Check,
+  FileText,
+  Loader2,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Save,
+  Trash2,
+} from "lucide-react";
+import { Alert, AlertDescription, AlertTitle, Badge, InfoTooltip, Textarea } from "@ig/ui";
 import { useTemplate } from "@/hooks/useTemplate";
 import { useMeetings } from "@/hooks/useMeetings";
 import {
@@ -12,6 +21,8 @@ import {
 import { elapsedSeconds } from "@/lib/format";
 import { TemplateEditor } from "@/components/TemplateEditor";
 import { TemplateStatusBadge } from "@/components/StatusBadge";
+import { Page, PageHeader, CenteredMessage } from "@/components/Page";
+import { IconButton } from "@/components/IconButton";
 import type { Template, TemplateRecord } from "@/types";
 
 type Draft = {
@@ -28,14 +39,6 @@ function draftFromTemplate(t: TemplateRecord): Draft {
     template: t.template,
     default_target_minutes: t.default_target_minutes,
   };
-}
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="mx-auto max-w-3xl px-6 py-16 text-center text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
 }
 
 export function TemplateDetail() {
@@ -68,9 +71,9 @@ export function TemplateDetail() {
     [meetings],
   );
 
-  if (!loaded) return <Centered>Loading…</Centered>;
+  if (!loaded) return <CenteredMessage>Loading…</CenteredMessage>;
   if (!template || error)
-    return <Centered>{error ?? "Template not found."}</Centered>;
+    return <CenteredMessage>{error ?? "Template not found."}</CenteredMessage>;
 
   const saveDraft = async (): Promise<boolean> => {
     if (!draft || !dirty) return true;
@@ -132,19 +135,12 @@ export function TemplateDetail() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
-      <Link
-        to="/"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
-        ← Back
-      </Link>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {template.title}
-        </h1>
-        <TemplateStatusBadge status={template.template_status} />
-      </div>
+    <Page>
+      <PageHeader
+        back
+        title={template.title}
+        badge={<TemplateStatusBadge status={template.template_status} />}
+      />
 
       {template.document_filename && (
         <DocumentBadge
@@ -185,7 +181,7 @@ export function TemplateDetail() {
         />
       )}
 
-    </div>
+    </Page>
   );
 }
 
@@ -252,16 +248,21 @@ function FailedView({
         <AlertDescription>{error ?? "Unknown error."}</AlertDescription>
       </Alert>
       <div className="flex gap-2">
-        <Button onClick={onRegenerate} disabled={busy}>
-          {busy ? "Retrying…" : "Retry generation"}
-        </Button>
-        <Button
+        <IconButton
+          onClick={onRegenerate}
+          disabled={busy}
+          label={busy ? "Retrying…" : "Retry generation"}
+        >
+          {busy ? <Loader2 className="animate-spin" /> : <RotateCw />}
+        </IconButton>
+        <IconButton
           variant="ghost"
           onClick={onDelete}
           className="ml-auto text-destructive"
+          label="Delete template"
         >
-          Delete template
-        </Button>
+          <Trash2 />
+        </IconButton>
       </div>
     </div>
   );
@@ -341,9 +342,13 @@ function ReadyEditor({
       </section>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        <Button onClick={onOpenStart} disabled={startDisabled}>
-          {busy === "start" ? "Starting…" : "Start meeting"}
-        </Button>
+        <IconButton
+          onClick={onOpenStart}
+          disabled={startDisabled}
+          label={busy === "start" ? "Starting…" : "Start meeting"}
+        >
+          <Play />
+        </IconButton>
         {runningMeeting && (
           <Link
             to={`/meetings/${runningMeeting}`}
@@ -352,28 +357,39 @@ function ReadyEditor({
             another meeting is running →
           </Link>
         )}
-        <Button
+        <IconButton
           variant="outline"
           onClick={onSave}
           disabled={busy !== null || !dirty}
+          label={busy === "save" ? "Saving…" : dirty ? "Save changes" : "Saved"}
         >
-          {busy === "save" ? "Saving…" : dirty ? "Save changes" : "Saved"}
-        </Button>
-        <Button
+          {busy === "save" ? (
+            <Loader2 className="animate-spin" />
+          ) : dirty ? (
+            <Save />
+          ) : (
+            <Check />
+          )}
+        </IconButton>
+        <IconButton
           variant="outline"
           onClick={onRegenerate}
           disabled={busy !== null}
+          label={busy === "regenerate" ? "Regenerating…" : "Regenerate template"}
         >
-          {busy === "regenerate" ? "Regenerating…" : "Regenerate template"}
-        </Button>
-        <Button
+          <RefreshCw
+            className={busy === "regenerate" ? "animate-spin" : undefined}
+          />
+        </IconButton>
+        <IconButton
           variant="ghost"
           onClick={onDelete}
           disabled={busy !== null}
           className="ml-auto text-destructive"
+          label="Delete template"
         >
-          Delete
-        </Button>
+          <Trash2 />
+        </IconButton>
       </div>
     </div>
   );

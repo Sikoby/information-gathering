@@ -4,10 +4,15 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  Plus,
+  CircleHelp,
+  ListPlus,
+  ListTree,
+  MessageSquarePlus,
   Trash2,
+  type LucideIcon,
 } from "lucide-react";
-import { Badge, Button, InfoTooltip, Input, Textarea } from "@ig/ui";
+import { Badge, InfoTooltip, Input, Textarea } from "@ig/ui";
+import { IconButton } from "@/components/IconButton";
 import {
   CLOSING_SECTION_ID,
   OTHER_QUESTION_ID,
@@ -32,6 +37,22 @@ const KIND_LABELS: Record<SectionKind, string> = {
   topic: "Topic",
   question: "Question",
   answer: "Answer (runtime)",
+};
+
+// Glyph for a section's kind (used by the kind toggle).
+const KIND_ICONS: Record<SectionKind, LucideIcon> = {
+  meeting: ListTree,
+  topic: ListTree,
+  question: CircleHelp,
+  answer: CircleHelp,
+};
+
+// Glyph for the "add a child of this kind" action.
+const ADD_ICONS: Record<SectionKind, LucideIcon> = {
+  meeting: ListPlus,
+  topic: ListPlus,
+  question: MessageSquarePlus,
+  answer: MessageSquarePlus,
 };
 
 function allowedChildKinds(parentKind: SectionKind): SectionKind[] {
@@ -178,31 +199,33 @@ function SectionRow({
           !isProtected &&
           allowedKinds.length > 1 && (
             <div className="flex shrink-0 gap-1">
-              {allowedKinds.map((k) => (
-                <Button
-                  key={k}
-                  type="button"
-                  size="sm"
-                  variant={k === section.kind ? "default" : "outline"}
-                  disabled={disabled}
-                  onClick={() => setField({ kind: k })}
-                >
-                  {KIND_LABELS[k]}
-                </Button>
-              ))}
+              {allowedKinds.map((k) => {
+                const Icon = KIND_ICONS[k];
+                return (
+                  <IconButton
+                    key={k}
+                    size="sm"
+                    variant={k === section.kind ? "default" : "outline"}
+                    disabled={disabled}
+                    onClick={() => setField({ kind: k })}
+                    label={KIND_LABELS[k]}
+                  >
+                    <Icon />
+                  </IconButton>
+                );
+              })}
             </div>
           )}
         {!isProtected && !disabled && (
-          <Button
-            type="button"
-            variant="ghost"
+          <IconButton
             size="sm"
-            className="shrink-0"
+            variant="ghost"
+            className="shrink-0 text-destructive"
             onClick={remove}
-            title="Remove this section and its children"
+            label="Remove section and its children"
           >
-            <Trash2 className="h-3 w-3" />
-          </Button>
+            <Trash2 />
+          </IconButton>
         )}
       </div>
 
@@ -279,18 +302,20 @@ function SectionRow({
 
           {childKinds.length > 0 && !disabled && (
             <div className="flex gap-1">
-              {childKinds.map((k) => (
-                <Button
-                  key={k}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => addChild(k)}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  add {k}
-                </Button>
-              ))}
+              {childKinds.map((k) => {
+                const Icon = ADD_ICONS[k];
+                return (
+                  <IconButton
+                    key={k}
+                    size="sm"
+                    variant="outline"
+                    onClick={() => addChild(k)}
+                    label={`Add ${k}`}
+                  >
+                    <Icon />
+                  </IconButton>
+                );
+              })}
             </div>
           )}
 
@@ -415,26 +440,22 @@ export function TemplateEditor({
             />
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
+            <IconButton
               size="sm"
+              variant="outline"
               onClick={expandAll}
-              title="Expand all"
-              aria-label="Expand all"
+              label="Expand all"
             >
-              <ChevronsUpDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
+              <ChevronsUpDown />
+            </IconButton>
+            <IconButton
               size="sm"
+              variant="outline"
               onClick={collapseAll}
-              title="Collapse all"
-              aria-label="Collapse all"
+              label="Collapse all"
             >
-              <ChevronsDownUp className="h-3.5 w-3.5" />
-            </Button>
+              <ChevronsDownUp />
+            </IconButton>
             <Badge variant={Math.abs(total - 1) < 0.011 ? "success" : "warning"}>
               scheduled fractions {total.toFixed(2)}
             </Badge>

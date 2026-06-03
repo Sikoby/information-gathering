@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { Button } from "@ig/ui";
 import { Check, Copy } from "lucide-react";
+import { IconButton } from "@/components/IconButton";
 
-/** Copies `value` to the clipboard and flips the label to "Copied" briefly. */
+/** Copies `value` to the clipboard; the icon flips to a check briefly. */
 export function CopyButton({
   value,
   label = "Copy",
   className,
 }: {
   value: string;
+  /** Tooltip / accessible name for the action. */
   label?: string;
   className?: string;
 }) {
@@ -26,15 +27,13 @@ export function CopyButton({
   };
 
   return (
-    <Button
-      type="button"
+    <IconButton
       variant="outline"
-      size="sm"
+      label={copied ? "Copied" : label}
       onClick={onCopy}
       className={className}
     >
       {copied ? <Check /> : <Copy />}
-      {copied ? "Copied" : label}
-    </Button>
+    </IconButton>
   );
 }

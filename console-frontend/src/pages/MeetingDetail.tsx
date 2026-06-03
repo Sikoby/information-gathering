@@ -1,21 +1,17 @@
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, AlertDescription, AlertTitle, Button } from "@ig/ui";
+import { CalendarPlus, ExternalLink, Trash2, Video } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@ig/ui";
 import { useMeeting } from "@/hooks/useMeeting";
 import { useTemplate } from "@/hooks/useTemplate";
 import { deleteMeeting, meetingInviteIcsUrl } from "@/lib/api";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { InviteesList } from "@/components/InviteesList";
+import { Page, PageHeader, CenteredMessage } from "@/components/Page";
+import { IconButton } from "@/components/IconButton";
 import { formatDateTime } from "@/lib/format";
 import type { MeetingRecord } from "@/types";
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="mx-auto max-w-3xl px-6 py-16 text-center text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
 
 export function MeetingDetail() {
   const { id } = useParams();
@@ -26,9 +22,9 @@ export function MeetingDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  if (!loaded) return <Centered>Loading…</Centered>;
+  if (!loaded) return <CenteredMessage>Loading…</CenteredMessage>;
   if (!meeting || error)
-    return <Centered>{error ?? "Meeting not found."}</Centered>;
+    return <CenteredMessage>{error ?? "Meeting not found."}</CenteredMessage>;
 
   const onDelete = async () => {
     setBusy("delete");
@@ -42,24 +38,18 @@ export function MeetingDetail() {
     }
   };
 
-  const displayTitle =
-    meeting.title_override ?? template?.title ?? "Meeting";
+  const displayTitle = meeting.title_override ?? template?.title ?? "Meeting";
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
-      <Link
-        to="/"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
-        ← Back
-      </Link>
-      <div className="mt-2 flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{displayTitle}</h1>
-        <StatusBadge status={meeting.status} />
-      </div>
+    <Page>
+      <PageHeader
+        back
+        title={displayTitle}
+        badge={<StatusBadge status={meeting.status} />}
+      />
 
       {actionError && (
-        <p className="mt-3 text-sm text-destructive">{actionError}</p>
+        <p className="mb-3 text-sm text-destructive">{actionError}</p>
       )}
 
       <MeetingView
@@ -68,7 +58,7 @@ export function MeetingDetail() {
         busy={busy}
         onDelete={meeting.status !== "running" ? onDelete : undefined}
       />
-    </div>
+    </Page>
   );
 }
 
@@ -85,7 +75,7 @@ function MeetingView({
 }) {
   const scheduled = meeting.status === "scheduled";
   return (
-    <div className="mt-6 space-y-5">
+    <div className="space-y-5">
       {scheduled && (
         <Alert>
           <AlertTitle>Meeting scheduled</AlertTitle>
@@ -116,41 +106,42 @@ function MeetingView({
 
       <div className="flex flex-wrap gap-2">
         {scheduled && (
-          <Button asChild>
+          <IconButton asChild label="Add to calendar (.ics)">
             <a href={meetingInviteIcsUrl(meeting.meeting_id)} download>
-              Add to calendar (.ics)
+              <CalendarPlus />
             </a>
-          </Button>
+          </IconButton>
         )}
         {meeting.status === "running" && meeting.join_url && (
           <>
-            <Button asChild>
+            <IconButton asChild label="Join meeting">
               <a href={meeting.join_url} target="_blank" rel="noreferrer">
-                Join meeting
+                <Video />
               </a>
-            </Button>
+            </IconButton>
             <CopyButton value={meeting.join_url} label="Copy join link" />
           </>
         )}
         {!scheduled && meeting.webapp_url && (
-          <Button variant="outline" asChild>
+          <IconButton variant="outline" asChild label="Open live view">
             <a href={meeting.webapp_url} target="_blank" rel="noreferrer">
-              Open live view
+              <ExternalLink />
             </a>
-          </Button>
+          </IconButton>
         )}
         {meeting.webapp_url && (
           <CopyButton value={meeting.webapp_url} label="Copy live link" />
         )}
         {onDelete && (
-          <Button
+          <IconButton
             variant="ghost"
             onClick={onDelete}
             disabled={busy !== null}
             className="ml-auto text-destructive"
+            label="Delete meeting"
           >
-            Delete
-          </Button>
+            <Trash2 />
+          </IconButton>
         )}
       </div>
 
@@ -166,18 +157,7 @@ function MeetingView({
         />
       </dl>
 
-      {scheduled && meeting.invitees.length > 0 && (
-        <div>
-          <p className="text-sm font-medium">
-            Invitees ({meeting.invitees.length})
-          </p>
-          <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-            {meeting.invitees.map((email) => (
-              <li key={email}>{email}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {scheduled && <InviteesList emails={meeting.invitees} />}
     </div>
   );
 }

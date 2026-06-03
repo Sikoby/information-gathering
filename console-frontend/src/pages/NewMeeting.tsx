@@ -1,13 +1,14 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Button,
-  Input,
-  Textarea,
-} from "@ig/ui";
+  ArrowRight,
+  CalendarClock,
+  CalendarPlus,
+  LayoutDashboard,
+  Play,
+  X,
+} from "lucide-react";
+import { Alert, AlertDescription, AlertTitle, Input, Textarea } from "@ig/ui";
 import { useTemplates } from "@/hooks/useTemplates";
 import {
   meetingInviteIcsUrl,
@@ -15,6 +16,11 @@ import {
   startMeetingFromTemplate,
 } from "@/lib/api";
 import { CopyButton } from "@/components/CopyButton";
+import { Field } from "@/components/Field";
+import { LinkField } from "@/components/LinkField";
+import { InviteesList } from "@/components/InviteesList";
+import { Page, PageHeader } from "@/components/Page";
+import { IconButton } from "@/components/IconButton";
 import { formatDateTime } from "@/lib/format";
 import type { MeetingRecord } from "@/types";
 
@@ -117,142 +123,150 @@ export function NewMeeting() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-8">
-      <Link
-        to="/"
-        className="text-sm text-muted-foreground hover:text-foreground"
-      >
-        ← Back
-      </Link>
-      <h1 className="mt-2 text-2xl font-semibold tracking-tight">New meeting</h1>
+    <Page>
+      <PageHeader back title="New meeting" />
 
-      {loaded && ready.length === 0 && (
-        <Alert className="mt-6">
-          <AlertTitle>No templates ready yet</AlertTitle>
-          <AlertDescription>
-            A meeting runs from a template.{" "}
-            <Link to="/templates/new" className="underline">
-              Create a template
-            </Link>{" "}
-            first, then come back here.
-          </AlertDescription>
-        </Alert>
-      )}
+      <div className="max-w-2xl">
+        {loaded && ready.length === 0 && (
+          <Alert>
+            <AlertTitle>No templates ready yet</AlertTitle>
+            <AlertDescription>
+              A meeting runs from a template.{" "}
+              <Link to="/templates/new" className="underline">
+                Create a template
+              </Link>{" "}
+              first, then come back here.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      {result ? (
-        <ResultPanel
-          meeting={result}
-          onGo={() => navigate(`/meetings/${result.meeting_id}`)}
-        />
-      ) : (
-        ready.length > 0 && (
-          <div className="mt-6 space-y-6">
-            <Field label="Template">
-              <select
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={templateId}
-                onChange={(e) => setTemplateId(e.target.value)}
-              >
-                {ready.map((t) => (
-                  <option key={t.template_id} value={t.template_id}>
-                    {t.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <div className="inline-flex rounded-md border p-0.5">
-              <ModeTab active={mode === "now"} onClick={() => setMode("now")}>
-                Start now
-              </ModeTab>
-              <ModeTab
-                active={mode === "schedule"}
-                onClick={() => setMode("schedule")}
-              >
-                Schedule
-              </ModeTab>
-            </div>
-
-            <Field label="Title" hint="Defaults to the template title.">
-              <Input
-                className="mt-1"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={selected?.title ?? ""}
-                maxLength={200}
-              />
-            </Field>
-
-            <Field label="Duration (min)">
-              <Input
-                className="mt-1 w-36"
-                type="number"
-                min={1}
-                max={120}
-                value={effectiveMinutes}
-                onChange={(e) => setMinutes(Number(e.target.value))}
-              />
-            </Field>
-
-            {mode === "schedule" && (
-              <>
-                <Field label="Start time">
-                  <Input
-                    className="mt-1 w-64"
-                    type="datetime-local"
-                    min={minLocal}
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                  />
-                </Field>
-
-                <Field
-                  label="Invitees"
-                  hint="Emails separated by commas or new lines. Each gets a calendar invite (.ics) you download and send."
+        {result ? (
+          <ResultPanel
+            meeting={result}
+            onGo={() => navigate(`/meetings/${result.meeting_id}`)}
+          />
+        ) : (
+          ready.length > 0 && (
+            <div className="space-y-6">
+              <Field label="Template">
+                <select
+                  className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={templateId}
+                  onChange={(e) => setTemplateId(e.target.value)}
                 >
-                  <Textarea
-                    className="mt-1"
-                    rows={3}
-                    value={invitees}
-                    onChange={(e) => setInvitees(e.target.value)}
-                    placeholder="alice@example.com, bob@example.com"
-                  />
-                </Field>
-              </>
-            )}
+                  {ready.map((t) => (
+                    <option key={t.template_id} value={t.template_id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
 
-            {error && (
-              <Alert variant="destructive">
-                <AlertTitle>
-                  {mode === "now"
-                    ? "Couldn't start the meeting"
-                    : "Couldn't schedule the meeting"}
-                </AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="flex items-center gap-2 border-t pt-4">
-              {mode === "now" ? (
-                <Button onClick={onStartNow} disabled={busy || !selected}>
-                  {busy ? "Starting…" : "Start meeting"}
-                </Button>
-              ) : (
-                <Button
-                  onClick={onSchedule}
-                  disabled={busy || !selected || !scheduledAt}
+              <div className="inline-flex gap-0.5 rounded-md border p-0.5">
+                <IconButton
+                  variant={mode === "now" ? "default" : "ghost"}
+                  onClick={() => setMode("now")}
+                  label="Start now"
                 >
-                  {busy ? "Scheduling…" : "Schedule meeting"}
-                </Button>
+                  <Play />
+                </IconButton>
+                <IconButton
+                  variant={mode === "schedule" ? "default" : "ghost"}
+                  onClick={() => setMode("schedule")}
+                  label="Schedule"
+                >
+                  <CalendarClock />
+                </IconButton>
+              </div>
+
+              <Field label="Title" hint="Defaults to the template title.">
+                <Input
+                  className="mt-1"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={selected?.title ?? ""}
+                  maxLength={200}
+                />
+              </Field>
+
+              <Field label="Duration (min)">
+                <Input
+                  className="mt-1 w-36"
+                  type="number"
+                  min={1}
+                  max={120}
+                  value={effectiveMinutes}
+                  onChange={(e) => setMinutes(Number(e.target.value))}
+                />
+              </Field>
+
+              {mode === "schedule" && (
+                <>
+                  <Field label="Start time">
+                    <Input
+                      className="mt-1 w-64"
+                      type="datetime-local"
+                      min={minLocal}
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Invitees"
+                    hint="Emails separated by commas or new lines. Each gets a calendar invite (.ics) you download and send."
+                  >
+                    <Textarea
+                      className="mt-1"
+                      rows={3}
+                      value={invitees}
+                      onChange={(e) => setInvitees(e.target.value)}
+                      placeholder="alice@example.com, bob@example.com"
+                    />
+                  </Field>
+                </>
               )}
-              <Button variant="ghost" asChild>
-                <Link to="/">Cancel</Link>
-              </Button>
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTitle>
+                    {mode === "now"
+                      ? "Couldn't start the meeting"
+                      : "Couldn't schedule the meeting"}
+                  </AlertTitle>
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex items-center gap-2 border-t pt-4">
+                {mode === "now" ? (
+                  <IconButton
+                    onClick={onStartNow}
+                    disabled={busy || !selected}
+                    label={busy ? "Starting…" : "Start meeting"}
+                  >
+                    <Play />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    onClick={onSchedule}
+                    disabled={busy || !selected || !scheduledAt}
+                    label={busy ? "Scheduling…" : "Schedule meeting"}
+                  >
+                    <CalendarClock />
+                  </IconButton>
+                )}
+                <IconButton variant="ghost" asChild label="Cancel">
+                  <Link to="/">
+                    <X />
+                  </Link>
+                </IconButton>
+              </div>
             </div>
-          </div>
-        )
-      )}
-    </div>
+          )
+        )}
+      </div>
+    </Page>
   );
 }
 
@@ -270,6 +284,22 @@ function ResultPanel({
   );
 }
 
+/** Go-to-meeting + back-to-dashboard, shared by both result panels. */
+function ResultActions({ onGo }: { onGo: () => void }) {
+  return (
+    <div className="flex items-center gap-2 border-t pt-4">
+      <IconButton onClick={onGo} label="Go to meeting">
+        <ArrowRight />
+      </IconButton>
+      <IconButton variant="ghost" asChild label="Back to dashboard">
+        <Link to="/">
+          <LayoutDashboard />
+        </Link>
+      </IconButton>
+    </div>
+  );
+}
+
 function ScheduledPanel({
   meeting,
   onGo,
@@ -278,7 +308,7 @@ function ScheduledPanel({
   onGo: () => void;
 }) {
   return (
-    <div className="mt-6 space-y-6">
+    <div className="space-y-6">
       <Alert variant="success">
         <AlertTitle>Meeting scheduled</AlertTitle>
         <AlertDescription>
@@ -290,11 +320,11 @@ function ScheduledPanel({
       </Alert>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button asChild>
+        <IconButton asChild label="Add to calendar (.ics)">
           <a href={meetingInviteIcsUrl(meeting.meeting_id)} download>
-            Add to calendar (.ics)
+            <CalendarPlus />
           </a>
-        </Button>
+        </IconButton>
         {meeting.webapp_url && (
           <CopyButton value={meeting.webapp_url} label="Copy live link" />
         )}
@@ -308,22 +338,9 @@ function ScheduledPanel({
         />
       )}
 
-      {meeting.invitees.length > 0 && (
-        <Field label={`Invitees (${meeting.invitees.length})`}>
-          <ul className="mt-1 space-y-0.5 text-sm text-muted-foreground">
-            {meeting.invitees.map((email) => (
-              <li key={email}>{email}</li>
-            ))}
-          </ul>
-        </Field>
-      )}
+      <InviteesList emails={meeting.invitees} />
 
-      <div className="flex items-center gap-2 border-t pt-4">
-        <Button onClick={onGo}>Go to meeting</Button>
-        <Button variant="ghost" asChild>
-          <Link to="/">Back to dashboard</Link>
-        </Button>
-      </div>
+      <ResultActions onGo={onGo} />
     </div>
   );
 }
@@ -336,7 +353,7 @@ function StartedPanel({
   onGo: () => void;
 }) {
   return (
-    <div className="mt-6 space-y-6">
+    <div className="space-y-6">
       <Alert variant="success">
         <AlertTitle>Meeting started</AlertTitle>
         <AlertDescription>
@@ -351,91 +368,7 @@ function StartedPanel({
         <LinkField label="Live view" hint="Read-only — watch the meeting unfold." url={meeting.webapp_url} />
       )}
 
-      <div className="flex items-center gap-2 border-t pt-4">
-        <Button onClick={onGo}>Go to meeting</Button>
-        <Button variant="ghost" asChild>
-          <Link to="/">Back to dashboard</Link>
-        </Button>
-      </div>
+      <ResultActions onGo={onGo} />
     </div>
-  );
-}
-
-function LinkField({
-  label,
-  hint,
-  url,
-}: {
-  label: string;
-  hint?: string;
-  url: string;
-}) {
-  return (
-    <Field label={label} hint={hint}>
-      <div className="mt-1 flex gap-2">
-        <Input
-          readOnly
-          value={url}
-          className="flex-1"
-          onFocus={(e) => e.currentTarget.select()}
-        />
-        <CopyButton value={url} />
-        <Button variant="outline" size="sm" asChild>
-          <a href={url} target="_blank" rel="noreferrer">
-            Open
-          </a>
-        </Button>
-      </div>
-    </Field>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div>
-      <label className="text-sm font-medium">{label}</label>
-      {children}
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
-    </div>
-  );
-}
-
-function ModeTab({
-  active,
-  onClick,
-  disabled,
-  hint,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={disabled ? hint : undefined}
-      className={[
-        "rounded px-3 py-1 text-sm font-medium transition-colors",
-        active
-          ? "bg-primary text-primary-foreground shadow"
-          : "text-muted-foreground hover:text-foreground",
-        disabled ? "cursor-not-allowed opacity-50" : "",
-      ].join(" ")}
-    >
-      {children}
-    </button>
   );
 }
