@@ -345,7 +345,7 @@ function ReadyEditor({
         <IconButton
           onClick={onOpenStart}
           disabled={startDisabled}
-          label={busy === "start" ? "Starting…" : "Start meeting"}
+          label={busy === "start" ? "Starting…" : "Start"}
         >
           <Play />
         </IconButton>

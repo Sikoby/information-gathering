@@ -33,7 +33,7 @@ console-frontend/
       Welcome.tsx             one-screen onboarding shown on first visit per tab
       NewTemplate.tsx       the prompt form + optional .pptx/.pdf upload
       NewMeeting.tsx        the single meeting-creation surface: template picker + Start now / Schedule (time + invitees → .ics)
-      TemplateDetail.tsx    generating spinner / failed / editor + "Start meeting" (routes to /meetings/new?template=<id>); Prompt/Template headings carry concept InfoTooltips
+      TemplateDetail.tsx    generating spinner / failed / editor + "Start" (routes to /meetings/new?template=<id>); Prompt/Template headings carry concept InfoTooltips
       MeetingDetail.tsx     slim scheduled/live/done view with "open source template" link + copy-link / add-to-calendar buttons
     components/
       Page.tsx              Page (max-w-6xl px-6 py-8 outer container) + PageHeader (back-link + title + badge + info) + BackLink + CenteredMessage (loading/error box)
@@ -41,11 +41,12 @@ console-frontend/
       Field.tsx             labelled form field: label + optional info tooltip + control + optional hint
       LinkField.tsx         read-only URL Input + Copy + Open-in-new-tab, built on Field
       InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
-      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx
+      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx, ReadyIndicator.tsx
+        StatusBadge → a ready template renders ReadyIndicator (a green circle with a check) instead of a "ready" pill; generating/failed stay as pills
       TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```
 
-When `NewTemplate` includes a file, the form submits multipart to `/api/templates/upload`; otherwise it stays on the JSON path. `TemplateDetail` shows a small chip with the document filename + slide count when one was attached, and its "Start meeting" button (disabled, with a hint, while any other meeting is running) saves any pending edits then navigates to `/meetings/new?template=<id>` — there is no start-meeting modal. `NewMeeting` is the one place meetings are created: pick a ready template (preselected from the `?template=` deep link), set a title + duration, then choose a mode. **Start now** calls `POST /api/templates/:id/meetings` and shows a result panel with copyable join + live-view links (`CopyButton`). **Schedule** adds a `datetime-local` start time + an invitees field (comma/newline emails → `string[]`) and calls `POST /api/templates/:id/scheduled-meetings`; its result panel offers **Add to calendar (.ics)** (a download `<a>` to `meetingInviteIcsUrl(id)`), a copyable stable live-view link, and the invited list. It is reachable from the dashboard **New meeting** button and from any template's Start meeting button.
+When `NewTemplate` includes a file, the form submits multipart to `/api/templates/upload`; otherwise it stays on the JSON path. `TemplateDetail` shows a small chip with the document filename + slide count when one was attached, and its "Start meeting" button (disabled, with a hint, while any other meeting is running) saves any pending edits then navigates to `/meetings/new?template=<id>` — there is no start-meeting modal. `NewMeeting` is the one place meetings are created: pick a ready template (preselected from the `?template=` deep link), set a title + duration, then choose a mode. **Start now** calls `POST /api/templates/:id/meetings` and shows a result panel with copyable join + live-view links (`CopyButton`). **Schedule** adds a `datetime-local` start time + an invitees field (comma/newline emails → `string[]`) and calls `POST /api/templates/:id/scheduled-meetings`; its result panel offers **Add to calendar (.ics)** (a download `<a>` to `meetingInviteIcsUrl(id)`), a copyable stable live-view link, and the invited list. It is reachable from the dashboard **New meeting** button and from any template's Start button.
 
 Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come from `@ig/ui` — do not copy shadcn components in here; add them to [`../shared/`](../shared/).
 
@@ -95,7 +96,7 @@ Colour encodes the button's *role*, and is the same for that role on every page:
 
 | Role | `variant` | Example actions |
 | --- | --- | --- |
-| Primary / commit | `default` (filled) | New, Create, Start meeting, Schedule, Retry generation, Go to meeting, Add to calendar |
+| Primary / commit | `default` (filled) | New, Create, Start, Schedule, Retry generation, Go to meeting, Add to calendar |
 | Secondary | `outline` | Save, Regenerate, Copy, Open in new tab |
 | Navigation / dismiss | `ghost` | Back, Cancel, Back to dashboard |
 | Danger | `ghost` + `text-destructive` | every Delete (subtle — never a filled red button) |

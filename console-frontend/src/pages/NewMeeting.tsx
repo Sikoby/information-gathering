@@ -243,7 +243,7 @@ export function NewMeeting() {
                   <IconButton
                     onClick={onStartNow}
                     disabled={busy || !selected}
-                    label={busy ? "Starting…" : "Start meeting"}
+                    label={busy ? "Starting…" : "Start"}
                   >
                     <Play />
                   </IconButton>

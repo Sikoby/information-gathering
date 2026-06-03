@@ -1,5 +1,6 @@
 import { Badge } from "@ig/ui";
 import type { MeetingStatus, TemplateStatus } from "@/types";
+import { ReadyIndicator } from "./ReadyIndicator";
 
 export function StatusBadge({ status }: { status: MeetingStatus }) {
   const variant =
@@ -12,9 +13,9 @@ export function StatusBadge({ status }: { status: MeetingStatus }) {
 }
 
 export function TemplateStatusBadge({ status }: { status: TemplateStatus }) {
+  if (status === "ready") return <ReadyIndicator />;
   const map = {
     generating: { variant: "warning" as const, label: "generating" },
-    ready: { variant: "success" as const, label: "ready" },
     failed: { variant: "destructive" as const, label: "failed" },
   };
   const { variant, label } = map[status];
