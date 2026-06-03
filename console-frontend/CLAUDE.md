@@ -41,8 +41,8 @@ console-frontend/
       Field.tsx             labelled form field: label + optional info tooltip + control + optional hint
       LinkField.tsx         read-only URL Input + Copy + Open-in-new-tab, built on Field
       InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
-      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx, ReadyIndicator.tsx
-        StatusBadge → a ready template renders ReadyIndicator (a green circle with a check) instead of a "ready" pill; generating/failed stay as pills
+      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx, TemplateStatusIndicator.tsx
+        StatusBadge → meeting status pills (running/scheduled/done). TemplateStatusIndicator → one icon-in-a-circle for every template status (no pills): green check = ready, spinning amber loader = generating, red X = failed
       MeetingsCalendar.tsx  dashboard Meetings widget: shared @ig/ui Calendar (month grid, dot on days with ≥1 meeting) beside a selected-day agenda that groups same-time meetings under one time label; positions each meeting by scheduled_at / dispatched_at / ended_at per status; rows link to /meetings/:id. Shows overlapping meetings at the same slot.
       TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```

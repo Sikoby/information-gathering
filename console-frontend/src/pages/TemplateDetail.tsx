@@ -20,7 +20,7 @@ import {
 } from "@/lib/api";
 import { elapsedSeconds } from "@/lib/format";
 import { TemplateEditor } from "@/components/TemplateEditor";
-import { TemplateStatusBadge } from "@/components/StatusBadge";
+import { TemplateStatusIndicator } from "@/components/TemplateStatusIndicator";
 import { Page, PageHeader, CenteredMessage } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
 import type { Template, TemplateRecord } from "@/types";
@@ -139,7 +139,7 @@ export function TemplateDetail() {
       <PageHeader
         back
         title={template.title}
-        badge={<TemplateStatusBadge status={template.template_status} />}
+        badge={<TemplateStatusIndicator status={template.template_status} />}
       />
 
       {template.document_filename && (
