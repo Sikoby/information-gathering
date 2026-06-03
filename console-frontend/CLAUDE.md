@@ -32,10 +32,11 @@ console-frontend/
       Dashboard.tsx         two stacked sections: Templates (top) + Meetings (Running/Done); each section heading carries a concept InfoTooltip
       Welcome.tsx             one-screen onboarding shown on first visit per tab
       NewTemplate.tsx       the prompt form + optional .pptx/.pdf upload
-      TemplateDetail.tsx    generating spinner / failed / editor + "Start meeting" modal
+      TemplateDetail.tsx    generating spinner / failed / editor + "Start meeting" modal; Prompt/Template headings carry concept InfoTooltips
       MeetingDetail.tsx     slim live/done view with "open source template" link
     components/
-      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, TemplateEditor.tsx
+      TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx
+      TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```
 
 When `NewTemplate` includes a file, the form submits multipart to `/api/templates/upload`; otherwise it stays on the JSON path. `TemplateDetail` shows a small chip with the document filename + slide count when one was attached, and the "Start meeting" button is disabled (with a hint) when any other meeting is currently running.

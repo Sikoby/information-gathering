@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
-import { Badge, Button, Input, Textarea } from "@ig/ui";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { Badge, Button, InfoTooltip, Input, Textarea } from "@ig/ui";
 import {
   CLOSING_SECTION_ID,
   OTHER_QUESTION_ID,
@@ -88,16 +95,21 @@ function SectionRow({
   depth,
   onChange,
   disabled,
+  expandedIds,
+  onToggle,
+  onExpand,
 }: {
   section: Section;
   sections: Section[];
   depth: number;
   onChange: (next: Section[]) => void;
   disabled: boolean;
+  expandedIds: Set<string>;
+  onToggle: (id: string) => void;
+  onExpand: (id: string) => void;
 }) {
   const isProtected = PROTECTED_IDS.has(section.id);
   const isTopLevel = section.parent_id === ROOT_SECTION_ID;
-  const isRoot = section.id === ROOT_SECTION_ID;
   const allowedKinds = section.parent_id
     ? allowedChildKinds(
         sections.find((s) => s.id === section.parent_id)?.kind ?? "meeting",
@@ -108,12 +120,7 @@ function SectionRow({
     (c) => c.kind !== "answer",
   );
   const hasChildren = children.length > 0;
-
-  // Root + scheduled top-level topics start expanded; deeper nodes collapsed
-  // by default so a big template opens to a quick scan, not a wall of text.
-  const [expanded, setExpanded] = useState<boolean>(
-    isRoot || (isTopLevel && isScheduled(section)) || !hasChildren,
-  );
+  const expanded = expandedIds.has(section.id);
 
   const setField = (patch: Partial<Section>) =>
     onChange(replaceSection(sections, section.id, patch));
@@ -133,7 +140,7 @@ function SectionRow({
       ts: null,
     };
     onChange([...sections, next]);
-    setExpanded(true);
+    onExpand(section.id);
   };
 
   const remove = () => {
@@ -146,7 +153,7 @@ function SectionRow({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => onToggle(section.id)}
           aria-expanded={expanded}
           aria-label={expanded ? "Collapse" : "Expand"}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground"
@@ -167,11 +174,30 @@ function SectionRow({
         {isTopLevel && isScheduled(section) && (
           <span className="text-xs text-muted-foreground">scheduled</span>
         )}
+        {section.kind !== "meeting" &&
+          !isProtected &&
+          allowedKinds.length > 1 && (
+            <div className="flex shrink-0 gap-1">
+              {allowedKinds.map((k) => (
+                <Button
+                  key={k}
+                  type="button"
+                  size="sm"
+                  variant={k === section.kind ? "default" : "outline"}
+                  disabled={disabled}
+                  onClick={() => setField({ kind: k })}
+                >
+                  {KIND_LABELS[k]}
+                </Button>
+              ))}
+            </div>
+          )}
         {!isProtected && !disabled && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
+            className="shrink-0"
             onClick={remove}
             title="Remove this section and its children"
           >
@@ -182,25 +208,6 @@ function SectionRow({
 
       {expanded && (
         <div className="ml-7 mt-2 space-y-2">
-          {section.kind !== "meeting" && !isProtected && allowedKinds.length > 1 && (
-            <div>
-              <label className="text-xs text-muted-foreground">Kind</label>
-              <div className="mt-1 flex gap-1">
-                {allowedKinds.map((k) => (
-                  <Button
-                    key={k}
-                    type="button"
-                    size="sm"
-                    variant={k === section.kind ? "default" : "outline"}
-                    disabled={disabled}
-                    onClick={() => setField({ kind: k })}
-                  >
-                    {KIND_LABELS[k]}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
           <Textarea
             rows={2}
             value={section.body ?? ""}
@@ -217,15 +224,21 @@ function SectionRow({
             }
           />
           <div>
-            <label className="text-xs text-muted-foreground">
-              Speaker notes
-            </label>
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-muted-foreground">
+                Speaker notes
+              </label>
+              <InfoTooltip
+                size="sm"
+                content="Private notes for the agent — hidden from participants. Tone, framing, things to say or avoid."
+              />
+            </div>
             <Textarea
               className="mt-1"
               rows={2}
               value={section.private_notes ?? ""}
               disabled={disabled}
-              placeholder="Speaker notes for the agent — hidden from participants. Tone, things to say or avoid, framing cues."
+              placeholder="Tone, framing, things to say or avoid"
               onChange={(e) =>
                 setField({
                   private_notes: e.target.value ? e.target.value : null,
@@ -235,9 +248,15 @@ function SectionRow({
           </div>
           {isTopLevel && section.kind === "topic" && !isProtected && (
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">
-                Target fraction (leave blank for un-scheduled)
-              </label>
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-muted-foreground">
+                  Target fraction
+                </label>
+                <InfoTooltip
+                  size="sm"
+                  content="Share of the meeting this phase should take. Leave blank to leave it un-scheduled. Scheduled phases must sum to ≈ 1.0."
+                />
+              </div>
               <Input
                 type="number"
                 step="0.05"
@@ -285,6 +304,9 @@ function SectionRow({
                   depth={depth + 1}
                   onChange={onChange}
                   disabled={disabled}
+                  expandedIds={expandedIds}
+                  onToggle={onToggle}
+                  onExpand={onExpand}
                 />
               ))}
             </div>
@@ -309,13 +331,48 @@ export function TemplateEditor({
     onChange({ ...template, sections });
 
   const total = fractionSum(template.sections);
-  const root = template.sections.find((s) => s.id === ROOT_SECTION_ID);
+
+  // Expand/collapse is owned here so the whole tree can be driven at once
+  // (expand-all / collapse-all) and starts fully collapsed: a section is shown
+  // expanded iff its id is in this set.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+
+  const toggle = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const expand = (id: string) =>
+    setExpandedIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+
+  const expandAll = () =>
+    setExpandedIds(
+      new Set(
+        template.sections.filter((s) => s.kind !== "answer").map((s) => s.id),
+      ),
+    );
+
+  const collapseAll = () => setExpandedIds(new Set());
+
+  // The "_root" meeting node is structural — edit its children directly.
+  const topLevel = childrenOf(template.sections, ROOT_SECTION_ID).filter(
+    (c) => c.kind !== "answer",
+  );
 
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-[12rem_1fr]">
         <div>
-          <label className="text-xs text-muted-foreground">Name</label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground">Name</label>
+            <InfoTooltip
+              size="sm"
+              content="Short identifier for the template — auto-formatted to lowercase with hyphens."
+            />
+          </div>
           <Input
             className="mt-1"
             value={template.name}
@@ -326,7 +383,13 @@ export function TemplateEditor({
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground">Description</label>
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground">Description</label>
+            <InfoTooltip
+              size="sm"
+              content="One-line summary of what this meeting template is for."
+            />
+          </div>
           <Input
             className="mt-1"
             value={template.description}
@@ -340,29 +403,57 @@ export function TemplateEditor({
 
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold">
-            Sections ({template.sections.length})
-          </h3>
-          <Badge
-            variant={Math.abs(total - 1) < 0.011 ? "success" : "warning"}
-          >
-            scheduled fractions {total.toFixed(2)}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-sm font-semibold">
+              Sections ({template.sections.length})
+            </h3>
+            <InfoTooltip
+              size="sm"
+              content={
+                'Tree of sections. Top-level topics with a target fraction are "phases" and must sum to ≈ 1.0. Questions accept answers at runtime.'
+              }
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={expandAll}
+              title="Expand all"
+              aria-label="Expand all"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={collapseAll}
+              title="Collapse all"
+              aria-label="Collapse all"
+            >
+              <ChevronsDownUp className="h-3.5 w-3.5" />
+            </Button>
+            <Badge variant={Math.abs(total - 1) < 0.011 ? "success" : "warning"}>
+              scheduled fractions {total.toFixed(2)}
+            </Badge>
+          </div>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Tree of sections. Top-level TOPICs with a target_fraction are "phases"
-          and must sum to ≈ 1.0. QUESTIONs accept ANSWERs at runtime.
-        </p>
         <div className="mt-3 space-y-2">
-          {root && (
+          {topLevel.map((c) => (
             <SectionRow
-              section={root}
+              key={c.id}
+              section={c}
               sections={template.sections}
               depth={0}
               onChange={setSections}
               disabled={disabled}
+              expandedIds={expandedIds}
+              onToggle={toggle}
+              onExpand={expand}
             />
-          )}
+          ))}
         </div>
       </div>
     </div>

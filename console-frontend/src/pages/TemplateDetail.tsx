@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FileText, Loader2 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Badge, Button, Input, Textarea } from "@ig/ui";
+import { Alert, AlertDescription, AlertTitle, Badge, Button, InfoTooltip, Input, Textarea } from "@ig/ui";
 import { useTemplate } from "@/hooks/useTemplate";
 import { useMeetings } from "@/hooks/useMeetings";
 import {
@@ -333,7 +333,13 @@ function ReadyEditor({
       )}
 
       <section>
-        <h2 className="text-sm font-semibold text-muted-foreground">Prompt</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold text-muted-foreground">Prompt</h2>
+          <InfoTooltip
+            size="sm"
+            content="The briefing the agent runs the meeting against. Save edits, or regenerate to rebuild the template from it."
+          />
+        </div>
         <Textarea
           className="mt-2"
           rows={8}
@@ -341,14 +347,18 @@ function ReadyEditor({
           maxLength={16000}
           onChange={(e) => setDraft({ ...draft, source_prompt: e.target.value })}
         />
-        <p className="mt-1 text-xs text-muted-foreground">
-          The prompt is the briefing the agent runs the meeting against. Save
-          edits, or Regenerate to rebuild the template from it.
-        </p>
       </section>
 
       <section>
-        <h2 className="text-sm font-semibold text-muted-foreground">Template</h2>
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Template
+          </h2>
+          <InfoTooltip
+            size="sm"
+            content="The structured meeting plan generated from the prompt. Edit its name, description, and the tree of topics and questions below."
+          />
+        </div>
         <div className="mt-3">
           {draft.template && (
             <TemplateEditor
