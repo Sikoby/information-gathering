@@ -14,7 +14,7 @@ export {
   scheduledNodes,
 } from "@ig/ui";
 
-export type MeetingStatus = "running" | "done";
+export type MeetingStatus = "scheduled" | "running" | "done";
 export type TemplateStatus = "generating" | "ready" | "failed";
 
 export type DocumentKind = "pptx" | "pdf";
@@ -61,6 +61,9 @@ export type MeetingRecord = {
   title_override: string | null;
   target_minutes: number;
   status: MeetingStatus;
+  scheduled_at: string | null;
+  invitees: string[];
+  invite_sent_at: string | null;
   run_id: string | null;
   room: string | null;
   join_url: string | null;

@@ -123,6 +123,21 @@ export function startMeetingFromTemplate(
   });
 }
 
+export function scheduleMeetingFromTemplate(
+  id: string,
+  body: {
+    scheduled_at: string;
+    title_override?: string;
+    target_minutes?: number;
+    invitees?: string[];
+  },
+): Promise<MeetingRecord> {
+  return req(`/api/templates/${id}/scheduled-meetings`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // ---------------------------------------------------------------- meetings
 
 export function listMeetings(): Promise<{ meetings: MeetingRecord[] }> {
@@ -131,6 +146,11 @@ export function listMeetings(): Promise<{ meetings: MeetingRecord[] }> {
 
 export function getMeeting(id: string): Promise<MeetingRecord> {
   return req(`/api/meetings/${id}`);
+}
+
+/** Same-origin URL of the downloadable `.ics` invite for a scheduled meeting. */
+export function meetingInviteIcsUrl(id: string): string {
+  return `/api/meetings/${id}/invite.ics`;
 }
 
 export function deleteMeeting(id: string): Promise<void> {

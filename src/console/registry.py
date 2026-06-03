@@ -18,10 +18,11 @@ meeting / generating template). The per-user indexes back the user-facing
 list endpoints. Both are written on create and cleaned on delete; the merge
 script only mutates the record string.
 
-Templates store `template` (the Template body) and `document_outline` as
-embedded JSON *strings* — the Lua merge decodes and re-encodes the whole
-record on every write, and cjson collapses empty nested arrays to `{}`,
-which would corrupt the section tree and the slide list.
+Templates store `template` (the Template body) and `document_outline`, and
+meetings store `invitees`, as embedded JSON *strings* — the Lua merge decodes
+and re-encodes the whole record on every write, and cjson collapses empty
+nested arrays to `{}`, which would corrupt the section tree, the slide list,
+or the invitee list.
 """
 
 from __future__ import annotations
@@ -46,7 +47,10 @@ _TEMPLATE_PREFIX = "template:"
 _TEMPLATES_INDEX_KEY = "templates:index"
 _TEMPLATES_OWNER_PREFIX = "templates:owner:"
 
-_MEETING_JSON_STRING_FIELDS: tuple[str, ...] = ()
+# `invitees` is a nested list — stored as an embedded JSON string so the Lua
+# merge never round-trips it through cjson (which collapses an empty list to
+# `{}` and would corrupt the record on the next status update).
+_MEETING_JSON_STRING_FIELDS: tuple[str, ...] = ("invitees",)
 _TEMPLATE_JSON_STRING_FIELDS: tuple[str, ...] = ("template", "document_outline")
 
 _redis: aioredis.Redis | None = None

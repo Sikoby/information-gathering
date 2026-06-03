@@ -8,6 +8,7 @@ import { MeetingCard } from "@/components/MeetingCard";
 import type { MeetingStatus } from "@/types";
 
 const MEETING_GROUPS: { status: MeetingStatus; label: string }[] = [
+  { status: "scheduled", label: "Scheduled" },
   { status: "running", label: "Running" },
   { status: "done", label: "Done" },
 ];
@@ -62,12 +63,17 @@ export function Dashboard() {
       </section>
 
       <section>
-        <div className="flex items-center gap-1.5">
-          <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
-          <InfoTooltip
-            size="lg"
-            content="A meeting is a live, AI-run instance of a template. It goes from running to done; only one runs at a time."
-          />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
+            <InfoTooltip
+              size="lg"
+              content="A meeting is a live, AI-run instance of a template. It goes from running to done; only one runs at a time."
+            />
+          </div>
+          <Button asChild>
+            <Link to="/meetings/new">New meeting</Link>
+          </Button>
         </div>
         {meetingsError && (
           <p className="mt-4 text-sm text-destructive">{meetingsError}</p>
@@ -77,7 +83,7 @@ export function Dashboard() {
             No meetings yet.
           </p>
         )}
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
+        <div className="mt-6 grid gap-6 md:grid-cols-3">
           {MEETING_GROUPS.map((group) => {
             const items = meetings.filter((m) => m.status === group.status);
             return (

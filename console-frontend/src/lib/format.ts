@@ -12,6 +12,16 @@ export function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
+/** Absolute local date + time, e.g. "Jun 4, 2026, 3:30 PM". */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 /** Whole seconds elapsed since an ISO timestamp (never negative). */
 export function elapsedSeconds(iso: string): number {
   const then = new Date(iso).getTime();

@@ -4,9 +4,9 @@ import type { MeetingRecord } from "@/types";
 import { usePolling } from "./usePolling";
 
 /**
- * Loads one meeting. Polls every 3s only while the meeting is running — i.e.
- * exactly the state the UI is waiting on. Once the meeting is `done` we stop
- * polling.
+ * Loads one meeting. Polls every 3s while the meeting is `scheduled` or
+ * `running` — the states the UI is waiting on (a scheduled meeting flips to
+ * running when deferred dispatch fires). Once the meeting is `done` we stop.
  */
 export function useMeeting(id: string | undefined) {
   const [meeting, setMeeting] = useState<MeetingRecord | null>(null);
@@ -29,7 +29,8 @@ export function useMeeting(id: string | undefined) {
     refresh();
   }, [refresh]);
 
-  const polling = meeting?.status === "running";
+  const polling =
+    meeting?.status === "running" || meeting?.status === "scheduled";
   usePolling(refresh, 3000, polling);
 
   return { meeting, error, loaded, refresh };
