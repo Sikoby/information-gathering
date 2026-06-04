@@ -115,6 +115,28 @@ async def get_state_json(run_id: str) -> str | None:
         return None
 
 
+async def get_meeting_json(meeting_id: str) -> dict | None:
+    """Return the console-owned `meeting:<id>` record as a dict, or None.
+
+    The console is the writer/owner of `meeting:*`; the webapp reads it (only)
+    to drive the public join page — analogous to the console reading the
+    agent-owned `state:*`. Only plain scalar fields are consumed (status, room,
+    join_pin, scheduled_at, title_override), so the embedded-JSON `invitees`
+    string is left untouched.
+    """
+    try:
+        raw = await get_client().get(f"meeting:{meeting_id}")
+    except Exception as e:
+        logger.warning("get meeting failed for meeting_id={}: {}", meeting_id, e)
+        return None
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
 async def ping() -> bool:
     try:
         return bool(await get_client().ping())

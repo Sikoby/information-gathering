@@ -79,6 +79,7 @@ class MeetingRecord(BaseModel):
     scheduled_at: str | None = None
     invitees: list[str] = Field(default_factory=list)
     invite_sent_at: str | None = None
+    join_pin: str | None = None
 
     run_id: str | None = None
     room: str | None = None

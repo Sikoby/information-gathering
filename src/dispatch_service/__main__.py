@@ -5,6 +5,11 @@ worker. The briefing is always passed inline as a raw markdown string
 (`briefing_description`); there is no file-path input. An optional
 `custom_template` (a Template JSON object) and an optional caller-supplied
 `run_id` may also be passed.
+
+`POST /join-token` is a lighter sibling: given an existing `room`, it mints a
+fresh voice-join URL (unique guest identity) without creating a room or
+dispatching an agent. The webapp join page calls it once it has gated an
+invitee on meeting status + PIN.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.parse
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from aiohttp import web
@@ -37,6 +43,41 @@ def _required_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"missing required env var: {name}")
     return value
+
+
+def _mint_join_url(
+    *,
+    livekit_url: str,
+    api_key: str,
+    api_secret: str,
+    room: str,
+    identity: str,
+    name: str,
+    ttl_hours: int = 2,
+) -> str:
+    """Mint a LiveKit voice-join URL for `room` under a given participant id.
+
+    Each caller passes a distinct `identity` — LiveKit disconnects an existing
+    participant when a second one joins with the same identity, so the agent's
+    initial "stakeholder" token and every per-click guest token must differ.
+    """
+    token = (
+        AccessToken(api_key, api_secret)
+        .with_identity(identity)
+        .with_name(name)
+        .with_grants(VideoGrants(
+            room=room,
+            room_join=True,
+            can_publish=True,
+            can_subscribe=True,
+        ))
+        .with_ttl(timedelta(hours=ttl_hours))
+        .to_jwt()
+    )
+    return "https://meet.livekit.io/custom?" + urllib.parse.urlencode({
+        "liveKitUrl": livekit_url,
+        "token": token,
+    })
 
 
 async def _dispatch(
@@ -69,24 +110,14 @@ async def _dispatch(
             max_participants=4,
         ))
 
-        token = (
-            AccessToken(api_key, api_secret)
-            .with_identity("stakeholder")
-            .with_name("Stakeholder")
-            .with_grants(VideoGrants(
-                room=room_name,
-                room_join=True,
-                can_publish=True,
-                can_subscribe=True,
-            ))
-            .with_ttl(timedelta(hours=2))
-            .to_jwt()
+        join_url = _mint_join_url(
+            livekit_url=livekit_url,
+            api_key=api_key,
+            api_secret=api_secret,
+            room=room_name,
+            identity="stakeholder",
+            name="Stakeholder",
         )
-
-        join_url = "https://meet.livekit.io/custom?" + urllib.parse.urlencode({
-            "liveKitUrl": livekit_url,
-            "token": token,
-        })
 
         await api.agent_dispatch.create_dispatch(CreateAgentDispatchRequest(
             agent_name=AGENT_NAME,
@@ -155,6 +186,39 @@ async def _post_dispatch(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def _post_join_token(request: web.Request) -> web.Response:
+    """Mint a fresh voice-join URL for an already-running meeting's room.
+
+    Called by the webapp join page (server-to-server, internal network) once it
+    has gated on meeting status + PIN. Creates no room and dispatches no agent —
+    it only issues a token, under a unique guest identity so concurrent
+    invitees never collide.
+    """
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return web.json_response({"error": "invalid JSON body"}, status=400)
+
+    room = payload.get("room")
+    if not room:
+        return web.json_response({"error": "missing required field: room"}, status=400)
+
+    try:
+        join_url = _mint_join_url(
+            livekit_url=_required_env("LIVEKIT_URL"),
+            api_key=_required_env("LIVEKIT_API_KEY"),
+            api_secret=_required_env("LIVEKIT_API_SECRET"),
+            room=str(room),
+            identity="guest-" + uuid.uuid4().hex[:8],
+            name=str(payload.get("name") or "Participant"),
+        )
+    except Exception as e:
+        logger.exception("join-token failed")
+        return web.json_response({"error": str(e)}, status=500)
+
+    return web.json_response({"join_url": join_url})
+
+
 async def _get_runs(_request: web.Request) -> web.Response:
     try:
         members = await _get_redis().smembers(_RUNS_ACTIVE_KEY)
@@ -174,6 +238,7 @@ async def _get_healthz(_request: web.Request) -> web.Response:
 def build_app() -> web.Application:
     app = web.Application()
     app.router.add_post("/dispatch", _post_dispatch)
+    app.router.add_post("/join-token", _post_join_token)
     app.router.add_get("/runs", _get_runs)
     app.router.add_get("/healthz", _get_healthz)
     return app

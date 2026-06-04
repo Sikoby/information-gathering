@@ -30,7 +30,7 @@ src/console/
   generation.py   background template-generation task (operates on template:*).
   reconcile.py    background lifecycle-reconciliation task (leader-locked).
   ics.py          hand-rolled RFC 5545 VEVENT builder for the .ics invite.
-  invites.py      invite delivery — a logged no-op placeholder until SMTP lands.
+  invites.py      invite delivery over SMTP (aiosmtplib); no-op when SMTP_HOST unset.
   handlers.py     /api/* + /healthz handlers.
 ```
 
@@ -58,9 +58,9 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `POST /api/templates/{id}/regenerate` | `404` on owner mismatch. Bumps `generation_seq`, resets `template_status` to `generating`, re-runs generation (the stored `document_outline` is passed through, so document-driven regenerations don't need re-upload). `202`. |
 | `DELETE /api/templates/{id}` | `204` if no meetings reference it; otherwise `409` with `{total_count, running_count}`. `404` on owner mismatch. The referencing-meetings check looks at the caller's meetings only. |
 | `POST /api/templates/{id}/meetings` | Body `MeetingStartFromTemplate` (`title_override?`, `target_minutes?`). `404` on owner mismatch. Stamps the new meeting with the caller's `owner_email`. `424` if template is not `ready`; `502` if dispatch fails. `201` with the new meeting on success. Meetings run concurrently — there is no per-user limit. |
-| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch. Creates a `status="scheduled"` record with a deterministic `webapp_url` (so the invite has a stable link before dispatch) and calls the `invites.send_invites` placeholder. `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
+| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch. Creates a `status="scheduled"` record with a deterministic `webapp_url` (so the invite has a stable link before dispatch) and, when there are invitees, a generated `join_pin`, then emails the invite via `invites.send_invites` (best-effort; stamps `invite_sent_at` on success). `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
 | `POST /api/templates/{id}/batch-meetings` | Body `BatchStartFromTemplate` (`target_minutes?`, `title_prefix?`, `interviewees` — each `{name?, email}`, ≥1, no cap). `404` on owner mismatch; `424` if template is not `ready`. **Best-effort**: dispatches + creates one `status="running"` meeting per interviewee (name → `title_override`, email → its single invitee), collecting per-row failures. `201` with `{meetings: [...], errors: [...]}` — an all-failed batch still returns `201` with empty `meetings`. |
-| `POST /api/templates/{id}/scheduled-batch-meetings` | Body `BatchScheduleFromTemplate` (the above + `scheduled_at`). `404` on owner mismatch; `424` if not `ready`; `400` if `scheduled_at` is not in the future. Creates one `status="scheduled"` meeting per interviewee (deterministic `webapp_url`, `invites.send_invites` each); no dispatch. `201` with `{meetings: [...]}`. The reconcile loop dispatches each when its `scheduled_at` arrives. |
+| `POST /api/templates/{id}/scheduled-batch-meetings` | Body `BatchScheduleFromTemplate` (the above + `scheduled_at`). `404` on owner mismatch; `424` if not `ready`; `400` if `scheduled_at` is not in the future. Creates one `status="scheduled"` meeting per interviewee (deterministic `webapp_url`, a generated `join_pin`, an `invites.send_invites` each); no dispatch. `201` with `{meetings: [...]}`. The reconcile loop dispatches each when its `scheduled_at` arrives. |
 
 **Meetings** — instances + audit log:
 
@@ -68,7 +68,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | --- | --- |
 | `GET /api/meetings` | `{meetings: [...]}`, newest first — only the caller's meetings. |
 | `GET /api/meetings/{id}` | The poll endpoint. `200` / `404` (also `404` on owner mismatch). |
-| `GET /api/meetings/{id}/invite.ics` | Downloads the `.ics` calendar invite for a scheduled meeting (`Content-Type: text/calendar`, `Content-Disposition: attachment`). `404` on owner mismatch; `409` if the meeting has no `scheduled_at`. Built by `ics.build_event`; this is what the **Add to calendar** button hits and what the future email step will attach. |
+| `GET /api/meetings/{id}/invite.ics` | Downloads the `.ics` calendar invite for a scheduled meeting (`Content-Type: text/calendar`, `Content-Disposition: attachment`). `404` on owner mismatch; `409` if the meeting has no `scheduled_at`. Built by `ics.build_event` (with the join link + `join_pin` embedded in the DESCRIPTION); this is the **Add to calendar** download — the same payload `invites.send_invites` attaches to the email. |
 | `DELETE /api/meetings/{id}` | `204`. `404` on owner mismatch. `409` if `running`. |
 
 **Helpers:**
@@ -88,7 +88,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `template:<template_id>` | string (JSON) | the `TemplateRecord` — carries `owner_email`. `template` (the body) and `document_outline` are stored as embedded JSON *strings* so the Lua merge never round-trips their nested arrays through cjson (which would collapse empty arrays to `{}`). The record also carries `document_filename` + `document_kind` (`pptx`\|`pdf`) when the template was created via `/upload`. |
 | `templates:index` | sorted set | member=`template_id`, score=created epoch. **Global** — backs the reconcile loop's stale-generation sweep. |
 | `templates:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/templates`. Written alongside the global index on create, removed on delete. |
-| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord` — carries `owner_email` plus `status` (`scheduled`\|`running`\|`done`), `title_override?`, `target_minutes`, LiveKit run info, and lifecycle timestamps. A `scheduled` meeting also carries `scheduled_at`, `invitees`, and `invite_sent_at?`. `invitees` is stored as an embedded JSON *string* (like the template's nested fields) so the Lua merge never round-trips the list through cjson — which would collapse an empty list to `{}` and corrupt the record. No template body lives here. |
+| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord` — carries `owner_email` plus `status` (`scheduled`\|`running`\|`done`), `title_override?`, `target_minutes`, LiveKit run info, and lifecycle timestamps. A `scheduled` meeting also carries `scheduled_at`, `invitees`, `invite_sent_at?`, and `join_pin?` (the passcode for the public join page; plain scalar, not embedded). `invitees` is stored as an embedded JSON *string* (like the template's nested fields) so the Lua merge never round-trips the list through cjson — which would collapse an empty list to `{}` and corrupt the record. The **webapp** reads this key (read-only) to drive the join page. No template body lives here. |
 | `meetings:index` | sorted set | member=`meeting_id`, score=created epoch. **Global** — backs the reconcile loop's running-meeting sweep. |
 | `meetings:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/meetings`. |
 | `console:reconcile:leader` | string | short-TTL leader lock for the reconcile loop. |
@@ -115,6 +115,10 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `CONSOLE_RECONCILE_INTERVAL` | optional (default 15) | reconcile period, seconds. |
 | `CONSOLE_STARTUP_GRACE_MIN` | optional (default 5) | agent-never-started grace window. |
 | `CONSOLE_SCHEDULE_LATE_CEILING_HOURS` | optional (default 6) | a `scheduled` meeting overdue past this (owner perpetually busy, or dispatch failing) is retired `done`/`schedule_missed`. |
+| `SMTP_HOST` | optional (unset → invites are a logged no-op) | SMTP server for invite email (`invites.py`). When unset, scheduling still works and the `.ics` download is unaffected. |
+| `SMTP_PORT` | optional (default 587) | 465 → implicit TLS; 587 → STARTTLS; anything else → plain (e.g. a local mailpit on 1025). |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | optional | auth credentials; sent only when both are present. |
+| `SMTP_FROM` | optional (default `meetings@localhost`) | envelope/From address of the invite email. |
 
 ## Entry point and command
 
@@ -122,7 +126,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 python -m src.console
 ```
 
-[Dockerfile.console](../../Dockerfile.console) is a single-stage Python image (`aiohttp redis loguru pydantic python-dotenv`) — no livekit/openai.
+[Dockerfile.console](../../Dockerfile.console) is a single-stage Python image (`aiohttp redis loguru pydantic python-dotenv aiosmtplib`) — no livekit/openai.
 
 ## Verify changes
 

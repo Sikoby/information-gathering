@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 from datetime import datetime, timezone
 from typing import TypeVar
 
@@ -57,6 +58,41 @@ def _ics_filename(summary: str) -> str:
     """Slugify the title into a safe ASCII .ics filename (no quotes/CRLF)."""
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", summary).strip("-").lower()
     return slug or "meeting-invite"
+
+
+def _meeting_summary(rec: MeetingRecord, tmpl: TemplateRecord | None) -> str:
+    """The human title for the calendar event / email subject.
+
+    A meeting's own `title_override` wins; otherwise the template title; a
+    constant last-resort so the `.ics` SUMMARY is never empty. Shared by the
+    `.ics` download endpoint and the invite email so the two never drift.
+    """
+    return rec.title_override or (tmpl.title if tmpl else None) or "Meeting"
+
+
+def _join_url(meeting_id: str) -> str:
+    """The stable, permanent join link mailed in the invite."""
+    return f"{_webapp_public_url()}/join/{meeting_id}"
+
+
+def _new_join_pin() -> str:
+    """A 6-digit PIN shown in the invite and required on the join page."""
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+async def _send_invites(rec: MeetingRecord, summary: str) -> None:
+    """Best-effort invite email; stamp `invite_sent_at` on a successful send.
+
+    A send failure — or unconfigured SMTP — never fails meeting creation: it is
+    logged inside `invites.send_invites` and the record keeps `invite_sent_at`
+    unset. Mutates `rec` so the JSON response reflects the stamp.
+    """
+    if not rec.invitees:
+        return
+    if await invites.send_invites(rec, summary=summary):
+        sent_at = registry.now_iso()
+        await registry.update(rec.meeting_id, invite_sent_at=sent_at)
+        rec.invite_sent_at = sent_at
 
 _T = TypeVar("_T", bound=BaseModel)
 
@@ -460,12 +496,13 @@ async def post_template_schedule_meeting(request: web.Request) -> web.Response:
         status="scheduled",
         scheduled_at=payload.scheduled_at,
         invitees=payload.invitees,
+        join_pin=_new_join_pin() if payload.invitees else None,
         webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
         created_at=now,
         updated_at=now,
     )
     await registry.create(rec)
-    await invites.send_invites(rec)  # placeholder: logged no-op until SMTP lands
+    await _send_invites(rec, _meeting_summary(rec, tmpl))
     logger.info(
         "scheduled meeting_id={} owner={} template_id={} at={} invitees={}",
         meeting_id,
@@ -611,12 +648,13 @@ async def post_template_schedule_batch(request: web.Request) -> web.Response:
             status="scheduled",
             scheduled_at=payload.scheduled_at,
             invitees=[person.email],
+            join_pin=_new_join_pin(),
             webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
             created_at=now,
             updated_at=now,
         )
         await registry.create(rec)
-        await invites.send_invites(rec)
+        await _send_invites(rec, _meeting_summary(rec, tmpl))
         meetings.append(rec.model_dump(mode="json"))
 
     logger.info(
@@ -663,8 +701,14 @@ async def get_meeting_invite_ics(request: web.Request) -> web.Response:
         )
 
     tmpl = await registry.get_template(rec.template_id)
-    summary = rec.title_override or (tmpl.title if tmpl else None) or "Meeting"
-    body = ics.build_event(rec, summary=summary, organizer_email=rec.owner_email)
+    summary = _meeting_summary(rec, tmpl)
+    body = ics.build_event(
+        rec,
+        summary=summary,
+        organizer_email=rec.owner_email,
+        join_url=_join_url(rec.meeting_id),
+        pin=rec.join_pin,
+    )
     return web.Response(
         text=body,
         content_type="text/calendar",

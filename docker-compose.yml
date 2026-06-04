@@ -39,6 +39,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       WEBAPP_PORT: 8765
+      # The public join page mints its voice-join token via dispatch (internal).
+      DISPATCH_URL: http://dispatch:8766
     ports:
       - "8765:8765"
     depends_on:

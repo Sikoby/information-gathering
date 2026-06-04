@@ -83,23 +83,32 @@ def build_event(
     *,
     summary: str,
     organizer_email: str,
+    join_url: str | None = None,
+    pin: str | None = None,
 ) -> str:
     """Return a single-VEVENT VCALENDAR document for a scheduled meeting.
 
-    `rec.scheduled_at` must be set (the caller guarantees it). The event URL
-    and description point at the meeting's stable public live-view page
-    (`rec.webapp_url`); the short-lived voice-join link does not exist until
-    the deferred dispatch fires at start time.
+    `rec.scheduled_at` must be set (the caller guarantees it). `join_url` is the
+    stable permanent join link and `pin` the passcode required there; both are
+    surfaced in the DESCRIPTION so the calendar entry — the thing people click at
+    meeting time — carries everything needed to get in. The event URL still
+    points at the read-only live-view page (`rec.webapp_url`). The short-lived
+    voice-join token itself is minted only when the invitee opens the join link.
     """
     start = _parse_iso_utc(rec.scheduled_at or "")
     end = start + timedelta(minutes=rec.target_minutes)
     now = datetime.now(timezone.utc)
 
     live_view = rec.webapp_url or ""
-    description = (
-        f"AI-run meeting.\\n\\nLive view (read-only): {live_view}\\n\\n"
-        "The voice-join link is issued when the meeting starts."
-    )
+    parts = ["AI-run meeting."]
+    if join_url:
+        parts.append(f"Join: {join_url}")
+    if pin:
+        parts.append(f"PIN: {pin}")
+    if live_view:
+        parts.append(f"Live view (read-only): {live_view}")
+    parts.append("The room opens at the scheduled start time.")
+    description = "\\n\\n".join(parts)
 
     lines: list[str] = [
         "BEGIN:VCALENDAR",

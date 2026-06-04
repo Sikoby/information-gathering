@@ -9,7 +9,7 @@ WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir aiohttp redis loguru pydantic python-dotenv
+    && pip install --no-cache-dir aiohttp redis loguru pydantic python-dotenv aiosmtplib
 
 COPY src/__init__.py ./src/__init__.py
 COPY src/console/ ./src/console/

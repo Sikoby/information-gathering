@@ -23,6 +23,7 @@ src/dispatch_service/
 | Route | Behavior |
 | --- | --- |
 | `POST /dispatch` | Body `{briefing_description, target_minutes, custom_template?, run_id?}`. Creates the room + token, calls `AgentDispatchService.create_dispatch`, returns `{run_id, room, target_minutes, join_url, webapp_url}`. |
+| `POST /join-token` | Body `{room, name?}`. Mints a fresh voice-join URL for an **existing** `room` under a **unique guest identity** (`guest-<hex>`) — no room creation, no agent dispatch. Returns `{join_url}`. Internal-only (no public ingress); called by the webapp join page after it gates on meeting status + PIN. |
 | `GET /runs` | Returns `{active: [run_id...]}` from Redis `SMEMBERS runs:active`. Best-effort; returns 503 if Redis is unreachable. |
 | `GET /healthz` | 200 if `LIVEKIT_URL/KEY/SECRET` are present; 503 otherwise. |
 
