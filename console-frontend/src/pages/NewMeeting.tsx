@@ -5,7 +5,6 @@ import {
   CalendarClock,
   CalendarPlus,
   LayoutDashboard,
-  Play,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -22,6 +21,7 @@ import { LinkField } from "@/components/LinkField";
 import { InviteesList } from "@/components/InviteesList";
 import { Page, PageHeader } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
+import { StartButton } from "@/components/StartButton";
 import { formatDateTime } from "@/lib/format";
 import type { MeetingRecord } from "@/types";
 
@@ -201,13 +201,11 @@ export function NewMeeting() {
                   </Alert>
                 )}
 
-                <IconButton
+                <StartButton
                   onClick={onStartNow}
                   disabled={busy !== null || !selected}
-                  label={busy === "now" ? "Starting…" : "Start"}
-                >
-                  <Play />
-                </IconButton>
+                  busy={busy === "now"}
+                />
               </section>
 
               <section className="space-y-4 border-t pt-6">

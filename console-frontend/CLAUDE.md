@@ -39,6 +39,7 @@ console-frontend/
     components/
       Page.tsx              Page (max-w-6xl px-6 py-8 outer container) + PageHeader (back-link + title + badge + info) + BackLink + CenteredMessage (loading/error box)
       IconButton.tsx        the icon-only Button wrapper every button uses — required `label` → aria-label + title tooltip; sizes "default" (h-9 w-9) / "sm" (h-8 w-8, smaller glyph)
+      StartButton.tsx       the one text-button exception: the primary "Start a meeting" action (filled, h-9 to match the icon buttons); `busy` prop → spinner + "Starting…". Used by TemplateDetail + NewMeeting
       Field.tsx             labelled form field: label + optional info tooltip + control + optional hint
       LinkField.tsx         read-only URL Input + Copy + Open-in-new-tab, built on Field
       InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
@@ -92,7 +93,7 @@ The user dislikes visually noisy editor UI. Follow these rules everywhere in thi
 
 ### Buttons are strict icon-only
 
-Every button in this app is a **square icon button** rendered through `IconButton`. No visible button text. The required `label` prop becomes both the `aria-label` and the native `title` (hover tooltip) — that is how an icon-only action stays discoverable. Children are exactly one lucide icon.
+**Almost** every button in this app is a **square icon button** rendered through `IconButton` — no visible button text. The required `label` prop becomes both the `aria-label` and the native `title` (hover tooltip) — that is how an icon-only action stays discoverable. Children are exactly one lucide icon. The deliberate exception is the primary **"Start a meeting"** action, which is a **text button** (`StartButton`, see below) so the call-to-action that launches a meeting reads unambiguously wherever it appears.
 
 Colour encodes the button's *role*, and is the same for that role on every page:
 
@@ -109,7 +110,7 @@ One icon per action, used the same way everywhere:
 | --- | --- | --- | --- |
 | New | `Plus` | Back | `ArrowLeft` |
 | Create from document | `Upload` | Go / next | `ArrowRight` |
-| Start (now) | `Play` | Back to dashboard | `LayoutDashboard` |
+| Start (now) | text button (`StartButton`) | Back to dashboard | `LayoutDashboard` |
 | Schedule | `CalendarClock` | Cancel / remove file | `X` |
 | Save | `Save` → `Check` when saved | Add topic | `ListPlus` |
 | Regenerate | `RefreshCw` | Add question | `MessageSquarePlus` |
@@ -121,13 +122,13 @@ One icon per action, used the same way everywhere:
 
 When two buttons share an icon (the two Copy buttons, the `Plus` on both dashboard cards), the `label`/tooltip disambiguates them. A busy action swaps its icon for a spinning `Loader2` and updates its `label` ("Saving…", "Starting…").
 
-**The only text exception** is the two onboarding CTAs on `Welcome` ("Skip", "Got it, take me to the dashboard") — a first-run screen where a bare icon would be cryptic. Everything that is *not* a button keeps its text: `DropdownMenuItem` rows (the Sign out item), the file-upload `<label>` dropzone, `<select>` menus, and inline text links inside `Alert`s or status lines (e.g. the "open source template" link on a meeting page).
+**The text-button exceptions** are the primary "Start" action (`StartButton` — a filled button reading "Start" / "Starting…", used everywhere a meeting is launched) and the two onboarding CTAs on `Welcome` ("Skip", "Got it, take me to the dashboard") — a first-run screen where a bare icon would be cryptic. Everything that is *not* a button keeps its text: `DropdownMenuItem` rows (the Sign out item), the file-upload `<label>` dropzone, `<select>` menus, and inline text links inside `Alert`s or status lines (e.g. the "open source template" link on a meeting page).
 
 ### Use the shared console components — don't re-implement
 
 Reach for these before writing new markup; they exist so structure, spacing, and button styling can't drift:
 
-`Page`, `PageHeader`, `BackLink`, `CenteredMessage` (layout) · `Field`, `LinkField`, `InviteesList` (forms) · `IconButton`, `CopyButton` (buttons). If a third or fourth page needs the same block, promote it into `components/` rather than copy-pasting.
+`Page`, `PageHeader`, `BackLink`, `CenteredMessage` (layout) · `Field`, `LinkField`, `InviteesList` (forms) · `IconButton`, `StartButton`, `CopyButton` (buttons). If a third or fourth page needs the same block, promote it into `components/` rather than copy-pasting.
 
 > These design rules are **console-scoped**. The in-meeting viewer (`../frontend/`) intentionally uses a different visual language (dashboard aesthetic, mono timers, visible run ids) — don't apply these rules there, and don't pull these components across.
 

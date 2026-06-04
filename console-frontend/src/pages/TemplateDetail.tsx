@@ -4,7 +4,6 @@ import {
   Check,
   FileText,
   Loader2,
-  Play,
   RefreshCw,
   RotateCw,
   Save,
@@ -31,6 +30,7 @@ import { TemplateEditor } from "@/components/TemplateEditor";
 import { TemplateStatusIndicator } from "@/components/TemplateStatusIndicator";
 import { Page, PageHeader, CenteredMessage } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
+import { StartButton } from "@/components/StartButton";
 import type { Template, TemplateRecord } from "@/types";
 
 type Draft = {
@@ -369,13 +369,11 @@ function ReadyEditor({
       </section>
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-4">
-        <IconButton
+        <StartButton
           onClick={onOpenStart}
           disabled={startDisabled}
-          label={busy === "start" ? "Starting…" : "Start"}
-        >
-          <Play />
-        </IconButton>
+          busy={busy === "start"}
+        />
         <IconButton
           variant="outline"
           onClick={onSave}
