@@ -6,35 +6,31 @@ import {
   CalendarPlus,
   LayoutDashboard,
   ListPlus,
-  Play,
   X,
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Input } from "@ig/ui";
+import { Alert, AlertDescription, AlertTitle, Calendar, Input } from "@ig/ui";
 import { useTemplates } from "@/hooks/useTemplates";
 import {
   meetingInviteIcsUrl,
   scheduleBatchFromTemplate,
-  startBatchFromTemplate,
 } from "@/lib/api";
 import { CopyButton } from "@/components/CopyButton";
 import { Field } from "@/components/Field";
 import { Page, PageHeader } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatDateTime } from "@/lib/format";
 import type { BatchStartResult, Interviewee, MeetingRecord } from "@/types";
-
-type Mode = "now" | "schedule";
 
 /** An editable interviewee row (name kept as a string for the controlled input). */
 type Row = { name: string; email: string };
 
-/** Local-time value for a `<input type="datetime-local">` (no seconds). */
-function toLocalInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
+/** Merge a picked calendar day with an `HH:mm` time string into one Date. */
+function combineDayTime(day: Date, time: string): Date {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date(day);
+  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
 }
 
 export function NewBatchMeetings() {
@@ -48,19 +44,23 @@ export function NewBatchMeetings() {
   );
 
   const [templateId, setTemplateId] = useState("");
-  const [mode, setMode] = useState<Mode>("now");
   const [titlePrefix, setTitlePrefix] = useState("");
   // null = "follow the template default"; a number once the user edits it.
   const [minutes, setMinutes] = useState<number | null>(null);
-  const [scheduledAt, setScheduledAt] = useState(""); // datetime-local value
+  const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined);
+  const [scheduledTime, setScheduledTime] = useState("09:00");
   const [rows, setRows] = useState<Row[]>([{ name: "", email: "" }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BatchStartResult | null>(null);
 
-  // Floor the picker at "now" so the obvious mistake (a past time) can't be
-  // entered; the backend re-checks against its own clock.
-  const minLocal = useMemo(() => toLocalInputValue(new Date()), []);
+  // Floor the calendar at today so past days can't be picked; the backend
+  // re-checks the full instant against its own clock.
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   useEffect(() => {
     if (templateId || ready.length === 0) return;
@@ -87,36 +87,15 @@ export function NewBatchMeetings() {
     .filter((r) => r.email.trim())
     .map((r) => ({ name: r.name.trim() || null, email: r.email.trim() }));
 
-  const canSubmit =
-    !!selected &&
-    interviewees.length > 0 &&
-    (mode === "now" || !!scheduledAt);
-
-  const onStartNow = async () => {
-    if (!selected || interviewees.length === 0) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await startBatchFromTemplate(selected.template_id, {
-        title_prefix: titlePrefix.trim() ? titlePrefix : undefined,
-        target_minutes: targetOverride,
-        interviewees,
-      });
-      setResult(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const canSubmit = !!selected && interviewees.length > 0 && !!scheduledDay;
 
   const onSchedule = async () => {
-    if (!selected || !scheduledAt || interviewees.length === 0) return;
+    if (!selected || !scheduledDay || interviewees.length === 0) return;
     setBusy(true);
     setError(null);
     try {
       const res = await scheduleBatchFromTemplate(selected.template_id, {
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: combineDayTime(scheduledDay, scheduledTime).toISOString(),
         title_prefix: titlePrefix.trim() ? titlePrefix : undefined,
         target_minutes: targetOverride,
         interviewees,
@@ -131,7 +110,11 @@ export function NewBatchMeetings() {
 
   return (
     <Page>
-      <PageHeader back title="Batch create meetings" />
+      <PageHeader
+        back
+        title="Batch create meetings"
+        info="Schedule one meeting per interviewee from a single template — each gets their own room at the same start time. Each runs automatically when its time arrives."
+      />
 
       <div className="max-w-2xl">
         {loaded && ready.length === 0 && (
@@ -169,23 +152,6 @@ export function NewBatchMeetings() {
                 </select>
               </Field>
 
-              <div className="inline-flex gap-0.5 rounded-md border p-0.5">
-                <IconButton
-                  variant={mode === "now" ? "default" : "ghost"}
-                  onClick={() => setMode("now")}
-                  label="Start now"
-                >
-                  <Play />
-                </IconButton>
-                <IconButton
-                  variant={mode === "schedule" ? "default" : "ghost"}
-                  onClick={() => setMode("schedule")}
-                  label="Schedule"
-                >
-                  <CalendarClock />
-                </IconButton>
-              </div>
-
               <Field
                 label="Title prefix"
                 hint="Prepended to each interviewee's name (include a trailing space or separator). Blank uses just the name, or the template title."
@@ -210,80 +176,94 @@ export function NewBatchMeetings() {
                 />
               </Field>
 
-              {mode === "schedule" && (
-                <Field label="Start time">
-                  <Input
-                    className="mt-1 w-64"
-                    type="datetime-local"
-                    min={minLocal}
-                    value={scheduledAt}
-                    onChange={(e) => setScheduledAt(e.target.value)}
-                  />
-                </Field>
-              )}
+              <section className="space-y-4 border-t pt-6">
+                <h2 className="text-sm font-semibold text-muted-foreground">
+                  Schedule
+                </h2>
 
-              <Field
-                label="Interviewees"
-                hint="Each person gets their own meeting room. Name is optional; email is required."
-              >
-                <div className="mt-2 space-y-2 border-l pl-4">
-                  {rows.map((row, i) => (
-                    <div key={i} className="flex items-center gap-2">
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Date and time</h3>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                    <Calendar
+                      mode="single"
+                      selected={scheduledDay}
+                      onSelect={setScheduledDay}
+                      disabled={{ before: today }}
+                      className="rounded-md border p-3"
+                    />
+                    <div className="space-y-1.5">
                       <Input
-                        value={row.name}
-                        onChange={(e) => updateRow(i, { name: e.target.value })}
-                        placeholder="Name (optional)"
-                        maxLength={200}
+                        type="time"
+                        className="w-36"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
                       />
-                      <Input
-                        type="email"
-                        value={row.email}
-                        onChange={(e) => updateRow(i, { email: e.target.value })}
-                        placeholder="email@example.com"
-                      />
-                      <IconButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeRow(i)}
-                        disabled={rows.length === 1}
-                        label="Remove person"
-                      >
-                        <X />
-                      </IconButton>
+                      {scheduledDay && (
+                        <p className="text-sm text-muted-foreground">
+                          Starts{" "}
+                          {formatDateTime(
+                            combineDayTime(
+                              scheduledDay,
+                              scheduledTime,
+                            ).toISOString(),
+                          )}
+                        </p>
+                      )}
                     </div>
-                  ))}
-                  <IconButton
-                    variant="ghost"
-                    size="sm"
-                    onClick={addRow}
-                    label="Add person"
-                  >
-                    <ListPlus />
-                  </IconButton>
+                  </div>
                 </div>
-              </Field>
 
-              {error && (
-                <Alert variant="destructive">
-                  <AlertTitle>
-                    {mode === "now"
-                      ? "Couldn't start the meetings"
-                      : "Couldn't schedule the meetings"}
-                  </AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+                <Field
+                  label="Interviewees"
+                  hint="Each person gets their own meeting room. Name is optional; email is required."
+                >
+                  <div className="mt-2 space-y-2 border-l pl-4">
+                    {rows.map((row, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input
+                          value={row.name}
+                          onChange={(e) => updateRow(i, { name: e.target.value })}
+                          placeholder="Name (optional)"
+                          maxLength={200}
+                        />
+                        <Input
+                          type="email"
+                          value={row.email}
+                          onChange={(e) =>
+                            updateRow(i, { email: e.target.value })
+                          }
+                          placeholder="email@example.com"
+                        />
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeRow(i)}
+                          disabled={rows.length === 1}
+                          label="Remove person"
+                        >
+                          <X />
+                        </IconButton>
+                      </div>
+                    ))}
+                    <IconButton
+                      variant="ghost"
+                      size="sm"
+                      onClick={addRow}
+                      label="Add person"
+                    >
+                      <ListPlus />
+                    </IconButton>
+                  </div>
+                </Field>
 
-              <div className="flex items-center gap-2 border-t pt-4">
-                {mode === "now" ? (
-                  <IconButton
-                    onClick={onStartNow}
-                    disabled={busy || !canSubmit}
-                    label={busy ? "Starting…" : "Start meetings"}
-                  >
-                    <Play />
-                  </IconButton>
-                ) : (
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Couldn't schedule the meetings</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                <div className="flex items-center gap-2 border-t pt-4">
                   <IconButton
                     onClick={onSchedule}
                     disabled={busy || !canSubmit}
@@ -291,13 +271,13 @@ export function NewBatchMeetings() {
                   >
                     <CalendarClock />
                   </IconButton>
-                )}
-                <IconButton variant="ghost" asChild label="Cancel">
-                  <Link to="/">
-                    <X />
-                  </Link>
-                </IconButton>
-              </div>
+                  <IconButton variant="ghost" asChild label="Cancel">
+                    <Link to="/">
+                      <X />
+                    </Link>
+                  </IconButton>
+                </div>
+              </section>
             </div>
           )
         )}
