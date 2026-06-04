@@ -4,6 +4,7 @@ import { Calendar } from "@ig/ui";
 import type { MeetingRecord } from "@/types";
 import { formatTimeOfDay, localDayKey } from "@/lib/format";
 import { StatusBadge } from "./StatusBadge";
+import { TemplateStatusIndicator } from "./TemplateStatusIndicator";
 
 /** The instant a meeting sits at on the calendar, per its lifecycle stage. */
 function meetingInstant(m: MeetingRecord): string | null {
@@ -118,7 +119,11 @@ export function MeetingsCalendar({
                           <span className="truncate text-sm font-medium">
                             {title}
                           </span>
-                          <StatusBadge status={p.meeting.status} />
+                          {p.meeting.status === "scheduled" ? (
+                            <TemplateStatusIndicator status="scheduled" />
+                          ) : (
+                            <StatusBadge status={p.meeting.status} />
+                          )}
                         </Link>
                       </li>
                     );

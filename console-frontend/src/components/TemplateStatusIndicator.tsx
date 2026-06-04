@@ -1,9 +1,11 @@
-import { Check, Loader2, X, type LucideIcon } from "lucide-react";
+import { CalendarClock, Check, Loader2, X, type LucideIcon } from "lucide-react";
 import { cn } from "@ig/ui";
 import type { TemplateStatus } from "@/types";
 
+type IndicatorStatus = TemplateStatus | "scheduled";
+
 const CONFIG: Record<
-  TemplateStatus,
+  IndicatorStatus,
   { label: string; tone: string; Icon: LucideIcon; strokeWidth: number; spin?: boolean }
 > = {
   ready: {
@@ -25,13 +27,19 @@ const CONFIG: Record<
     Icon: X,
     strokeWidth: 3,
   },
+  scheduled: {
+    label: "Scheduled",
+    tone: "bg-muted text-muted-foreground",
+    Icon: CalendarClock,
+    strokeWidth: 2.5,
+  },
 };
 
 export function TemplateStatusIndicator({
   status,
   className,
 }: {
-  status: TemplateStatus;
+  status: IndicatorStatus;
   className?: string;
 }) {
   const { label, tone, Icon, strokeWidth, spin } = CONFIG[status];
