@@ -29,7 +29,7 @@ const CONFIG: Record<
   },
   scheduled: {
     label: "Scheduled",
-    tone: "bg-muted text-muted-foreground",
+    tone: "bg-success text-success-foreground",
     Icon: CalendarClock,
     strokeWidth: 2.5,
   },
