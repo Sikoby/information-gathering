@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Check,
   FileText,
@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle, Badge, InfoTooltip, Textarea } from "@ig/ui";
 import { useTemplate } from "@/hooks/useTemplate";
-import { useMeetings } from "@/hooks/useMeetings";
 import {
   deleteTemplate,
   patchTemplate,
@@ -45,7 +44,6 @@ export function TemplateDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { template, error, loaded } = useTemplate(id);
-  const { meetings } = useMeetings();
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftKey, setDraftKey] = useState("");
@@ -65,11 +63,6 @@ export function TemplateDetail() {
     if (!template || !draft) return false;
     return JSON.stringify(draft) !== JSON.stringify(draftFromTemplate(template));
   }, [template, draft]);
-
-  const runningMeeting = useMemo(
-    () => meetings.find((m) => m.status === "running") ?? null,
-    [meetings],
-  );
 
   if (!loaded) return <CenteredMessage>Loading…</CenteredMessage>;
   if (!template || error)
@@ -173,7 +166,6 @@ export function TemplateDetail() {
           dirty={dirty}
           busy={busy}
           approved={template.template_approved}
-          runningMeeting={runningMeeting?.meeting_id ?? null}
           onSave={saveDraft}
           onOpenStart={onStartMeeting}
           onRegenerate={onRegenerate}
@@ -274,7 +266,6 @@ function ReadyEditor({
   dirty,
   busy,
   approved,
-  runningMeeting,
   onSave,
   onOpenStart,
   onRegenerate,
@@ -285,13 +276,12 @@ function ReadyEditor({
   dirty: boolean;
   busy: string | null;
   approved: boolean | null;
-  runningMeeting: string | null;
   onSave: () => void;
   onOpenStart: () => void;
   onRegenerate: () => void;
   onDelete: () => void;
 }) {
-  const startDisabled = busy !== null || runningMeeting !== null;
+  const startDisabled = busy !== null;
   return (
     <div className="mt-6 space-y-8">
       {approved === false && (
@@ -349,14 +339,6 @@ function ReadyEditor({
         >
           <Play />
         </IconButton>
-        {runningMeeting && (
-          <Link
-            to={`/meetings/${runningMeeting}`}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            another meeting is running →
-          </Link>
-        )}
         <IconButton
           variant="outline"
           onClick={onSave}

@@ -6,9 +6,7 @@ only one replica does the work per tick). Three passes:
   1. Scheduled -> Running. A meeting scheduled for a future time is dispatched
      here once its start time arrives — deferred so the short-lived LiveKit
      voice-join token is minted at start, not at schedule time. A due meeting
-     yields to the one-at-a-time guard (deferred a tick if the owner already
-     has a running meeting) and is retired `schedule_missed` past a lateness
-     ceiling.
+     is retired `schedule_missed` past a lateness ceiling.
   2. Meeting Running -> Done. Reads the agent's `state:<run_id>` snapshot;
      when it carries an `end_reason`, the meeting is finished. If no
      snapshot ever appears, a grace window catches a crashed dispatch/agent
@@ -88,10 +86,9 @@ async def _reconcile_scheduled(
     """Dispatch a scheduled meeting once its start time arrives.
 
     The LiveKit voice-join token is short-lived, so it is minted here (at
-    start) rather than when the meeting was scheduled. A due meeting yields
-    to the one-at-a-time guard — deferred a tick if the owner already has a
-    running meeting — and is retired `schedule_missed` if it stays overdue
-    past the lateness ceiling (owner perpetually busy, or dispatch failing).
+    start) rather than when the meeting was scheduled. A due meeting is
+    retired `schedule_missed` if it stays overdue past the lateness ceiling
+    (dispatch persistently failing).
     """
     if not rec.scheduled_at:
         return
@@ -110,15 +107,6 @@ async def _reconcile_scheduled(
             status="done",
             end_reason="schedule_missed",
             ended_at=now.isoformat(),
-        )
-        return
-
-    # Yield to the per-user one-at-a-time guard: defer if the owner is busy.
-    owner_meetings = await registry.list_meetings_by_owner(rec.owner_email)
-    if any(m.status == "running" for m in owner_meetings):
-        logger.info(
-            "deferring scheduled meeting_id={} (owner has a running meeting)",
-            rec.meeting_id,
         )
         return
 

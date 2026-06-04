@@ -127,6 +127,33 @@ class MeetingStartFromTemplate(BaseModel):
 _INVITEES_MAX = 100
 
 
+def _clean_email(raw: str) -> str:
+    """Strip + lowercase + validate `local@domain`. Raises ValueError if bad."""
+    email = raw.strip().lower()
+    local, _, domain = email.partition("@")
+    if not local or "." not in domain:
+        raise ValueError(f"invalid email: {raw!r}")
+    return email
+
+
+def _normalize_scheduled_at(v: str) -> str:
+    """Parse an ISO 8601 datetime → a UTC ISO instant. Raises if unparseable.
+
+    Time-relative checks (is it in the future?) belong in the handler, against
+    its own clock — not here.
+    """
+    s = v.strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError as e:
+        raise ValueError("scheduled_at must be an ISO 8601 datetime") from e
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 class MeetingScheduleFromTemplate(BaseModel):
     """`POST /api/templates/{id}/scheduled-meetings` body.
 
@@ -142,17 +169,8 @@ class MeetingScheduleFromTemplate(BaseModel):
 
     @field_validator("scheduled_at")
     @classmethod
-    def _normalize_scheduled_at(cls, v: str) -> str:
-        s = v.strip()
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        try:
-            dt = datetime.fromisoformat(s)
-        except ValueError as e:
-            raise ValueError("scheduled_at must be an ISO 8601 datetime") from e
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).isoformat()
+    def _validate_scheduled_at(cls, v: str) -> str:
+        return _normalize_scheduled_at(v)
 
     @field_validator("invitees")
     @classmethod
@@ -160,15 +178,71 @@ class MeetingScheduleFromTemplate(BaseModel):
         out: list[str] = []
         seen: set[str] = set()
         for raw in v:
-            email = raw.strip().lower()
-            if not email:
+            if not raw.strip():
                 continue
-            local, _, domain = email.partition("@")
-            if not local or "." not in domain:
-                raise ValueError(f"invalid invitee email: {raw!r}")
+            email = _clean_email(raw)
             if email not in seen:
                 seen.add(email)
                 out.append(email)
         if len(out) > _INVITEES_MAX:
             raise ValueError(f"too many invitees (max {_INVITEES_MAX})")
         return out
+
+
+class BatchInterviewee(BaseModel):
+    """One person in a batch run: an optional display name plus their email.
+
+    The name (if present) becomes the meeting's `title_override`; the email
+    becomes the meeting's single invitee.
+    """
+
+    name: str | None = Field(default=None, max_length=_TITLE_MAX)
+    email: str
+
+    @field_validator("name")
+    @classmethod
+    def _blank_name_to_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return v.strip() or None
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, v: str) -> str:
+        return _clean_email(v)
+
+
+class BatchStartFromTemplate(BaseModel):
+    """`POST /api/templates/{id}/batch-meetings` body.
+
+    One template, N interviewees — each becomes its own meeting (own room,
+    own run_id), all started now and running in parallel. At least one
+    interviewee is required; there is no upper cap and duplicates are allowed.
+    """
+
+    target_minutes: int | None = Field(default=None, ge=1, le=120)
+    title_prefix: str | None = Field(default=None, min_length=1, max_length=_TITLE_MAX)
+    interviewees: list[BatchInterviewee]
+
+    @field_validator("interviewees")
+    @classmethod
+    def _require_one(cls, v: list[BatchInterviewee]) -> list[BatchInterviewee]:
+        if not v:
+            raise ValueError("at least one interviewee is required")
+        return v
+
+
+class BatchScheduleFromTemplate(BatchStartFromTemplate):
+    """`POST /api/templates/{id}/scheduled-batch-meetings` body.
+
+    The start-now batch plus a `scheduled_at` (normalized to a UTC ISO
+    instant; the handler enforces it is in the future). Each interviewee
+    becomes its own scheduled meeting dispatched by the reconcile loop.
+    """
+
+    scheduled_at: str
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def _validate_scheduled_at(cls, v: str) -> str:
+        return _normalize_scheduled_at(v)

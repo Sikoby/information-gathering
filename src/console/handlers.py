@@ -27,6 +27,8 @@ from ..templates import TEMPLATES
 from ..templates.schema import Template
 from . import auth, clients, generation, ics, invites, registry
 from .models import (
+    BatchScheduleFromTemplate,
+    BatchStartFromTemplate,
     MeetingRecord,
     MeetingScheduleFromTemplate,
     MeetingStartFromTemplate,
@@ -35,10 +37,6 @@ from .models import (
     TemplateRecord,
     TemplateRegenerate,
 )
-
-
-_START_LOCK_PREFIX = "console:start:lock:"
-_START_LOCK_TTL_SECONDS = 5
 
 
 def _webapp_public_url() -> str:
@@ -376,30 +374,6 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
             status=424,
         )
 
-    # Narrow the read-modify-write race across replicas — scoped to this
-    # user, since the one-at-a-time guard is per-user. The list check below
-    # is the real guard; this just shrinks the window.
-    if not await registry.try_acquire_leader(
-        f"{_START_LOCK_PREFIX}{email}", _START_LOCK_TTL_SECONDS
-    ):
-        return web.json_response(
-            {"error": "another start is in progress"}, status=409
-        )
-
-    running = [
-        m
-        for m in await registry.list_meetings_by_owner(email)
-        if m.status == "running"
-    ]
-    if running:
-        return web.json_response(
-            {
-                "error": "another meeting is running",
-                "running_meeting_id": running[0].meeting_id,
-            },
-            status=409,
-        )
-
     meeting_id = registry.new_meeting_id()
     target_minutes = opts.target_minutes or tmpl.default_target_minutes
     effective_title = opts.title_override or tmpl.title
@@ -447,11 +421,10 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
 async def post_template_schedule_meeting(request: web.Request) -> web.Response:
     """Schedule a future meeting from a template.
 
-    Unlike start-now, this does NOT dispatch and does NOT apply the
-    one-at-a-time guard (future meetings don't conflict yet). The reconcile
-    loop dispatches it when `scheduled_at` arrives. The record is given a
-    deterministic `webapp_url` immediately so the invite has a stable link
-    before dispatch mints the real voice-join URL.
+    Unlike start-now, this does NOT dispatch. The reconcile loop dispatches
+    it when `scheduled_at` arrives. The record is given a deterministic
+    `webapp_url` immediately so the invite has a stable link before dispatch
+    mints the real voice-join URL.
     """
     template_id = request.match_info["template_id"]
     email = request["user_email"]
@@ -502,6 +475,158 @@ async def post_template_schedule_meeting(request: web.Request) -> web.Response:
         len(payload.invitees),
     )
     return web.json_response(rec.model_dump(mode="json"), status=201)
+
+
+def _batch_title(prefix: str | None, name: str | None) -> str | None:
+    """Per-meeting title from the batch prefix + interviewee name.
+
+    Both present → "<prefix><name>" (the prefix carries its own separator);
+    otherwise whichever is set, or `None` (then the meeting falls back to the
+    template title downstream).
+    """
+    if prefix and name:
+        return f"{prefix}{name}"
+    return prefix or name
+
+
+async def post_template_start_batch(request: web.Request) -> web.Response:
+    """Start N meetings from one template — one per interviewee, in parallel.
+
+    Best-effort: each interviewee is dispatched independently; a failure is
+    collected in `errors[]` and the rest continue. Always returns 201 (even if
+    every dispatch failed — the caller compares `meetings` against `errors`).
+    """
+    template_id = request.match_info["template_id"]
+    email = request["user_email"]
+    payload = await _parse_body(request, BatchStartFromTemplate)
+    if isinstance(payload, web.Response):
+        return payload
+
+    tmpl = await _load_owned_template(request)
+    if isinstance(tmpl, web.Response):
+        return tmpl
+    if tmpl.template_status != "ready" or tmpl.template is None:
+        return web.json_response(
+            {"error": f"template is not ready (status={tmpl.template_status})"},
+            status=424,
+        )
+
+    target_minutes = payload.target_minutes or tmpl.default_target_minutes
+    meetings: list[dict] = []
+    errors: list[dict] = []
+    for person in payload.interviewees:
+        title = _batch_title(payload.title_prefix, person.name)
+        effective_title = title or tmpl.title
+        briefing = f"# {effective_title}\n\n{tmpl.source_prompt}"
+        meeting_id = registry.new_meeting_id()
+        try:
+            result = await clients.dispatch_meeting(
+                request.app["http_session"],
+                run_id=meeting_id,
+                briefing_description=briefing,
+                custom_template=tmpl.template,
+                target_minutes=target_minutes,
+            )
+        except Exception as e:  # noqa: BLE001 - collect + continue (best-effort)
+            logger.exception(
+                "batch dispatch failed template_id={} email={}",
+                template_id,
+                person.email,
+            )
+            errors.append(
+                {"name": person.name, "email": person.email, "error": str(e)}
+            )
+            continue
+
+        now = registry.now_iso()
+        rec = MeetingRecord(
+            meeting_id=meeting_id,
+            owner_email=email,
+            template_id=template_id,
+            title_override=title,
+            target_minutes=target_minutes,
+            status="running",
+            invitees=[person.email],
+            run_id=result["run_id"],
+            room=result.get("room"),
+            join_url=result.get("join_url"),
+            webapp_url=result.get("webapp_url"),
+            created_at=now,
+            updated_at=now,
+            dispatched_at=now,
+        )
+        await registry.create(rec)
+        meetings.append(rec.model_dump(mode="json"))
+
+    logger.info(
+        "batch-started template_id={} owner={} ok={} failed={}",
+        template_id,
+        email,
+        len(meetings),
+        len(errors),
+    )
+    return web.json_response({"meetings": meetings, "errors": errors}, status=201)
+
+
+async def post_template_schedule_batch(request: web.Request) -> web.Response:
+    """Schedule N future meetings from one template — one per interviewee.
+
+    Like single-schedule: no dispatch (the reconcile loop starts each when
+    `scheduled_at` arrives), a deterministic `webapp_url` so the invite has a
+    stable link, and a per-meeting `.ics` whose SUMMARY is the interviewee name
+    and whose single ATTENDEE is their email.
+    """
+    template_id = request.match_info["template_id"]
+    email = request["user_email"]
+    payload = await _parse_body(request, BatchScheduleFromTemplate)
+    if isinstance(payload, web.Response):
+        return payload
+
+    tmpl = await _load_owned_template(request)
+    if isinstance(tmpl, web.Response):
+        return tmpl
+    if tmpl.template_status != "ready" or tmpl.template is None:
+        return web.json_response(
+            {"error": f"template is not ready (status={tmpl.template_status})"},
+            status=424,
+        )
+
+    if _parse_iso(payload.scheduled_at) <= datetime.now(timezone.utc):
+        return web.json_response(
+            {"error": "scheduled_at must be in the future"}, status=400
+        )
+
+    target_minutes = payload.target_minutes or tmpl.default_target_minutes
+    meetings: list[dict] = []
+    for person in payload.interviewees:
+        title = _batch_title(payload.title_prefix, person.name)
+        meeting_id = registry.new_meeting_id()
+        now = registry.now_iso()
+        rec = MeetingRecord(
+            meeting_id=meeting_id,
+            owner_email=email,
+            template_id=template_id,
+            title_override=title,
+            target_minutes=target_minutes,
+            status="scheduled",
+            scheduled_at=payload.scheduled_at,
+            invitees=[person.email],
+            webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
+            created_at=now,
+            updated_at=now,
+        )
+        await registry.create(rec)
+        await invites.send_invites(rec)
+        meetings.append(rec.model_dump(mode="json"))
+
+    logger.info(
+        "batch-scheduled template_id={} owner={} count={} at={}",
+        template_id,
+        email,
+        len(meetings),
+        payload.scheduled_at,
+    )
+    return web.json_response({"meetings": meetings}, status=201)
 
 
 # =============================================================== meetings

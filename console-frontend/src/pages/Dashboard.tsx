@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import { InfoTooltip } from "@ig/ui";
 import { Page } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
@@ -73,14 +73,21 @@ export function Dashboard() {
             <h2 className="text-2xl font-semibold tracking-tight">Meetings</h2>
             <InfoTooltip
               size="lg"
-              content="A meeting is a live, AI-run instance of a template. It goes from running to done; only one runs at a time."
+              content="A meeting is a live, AI-run instance of a template. It goes from running to done, and several can run in parallel."
             />
           </div>
-          <IconButton asChild label="New meeting">
-            <Link to="/meetings/new">
-              <Plus />
-            </Link>
-          </IconButton>
+          <div className="flex items-center gap-2">
+            <IconButton asChild label="Batch create meetings">
+              <Link to="/meetings/batch">
+                <Users />
+              </Link>
+            </IconButton>
+            <IconButton asChild label="New meeting">
+              <Link to="/meetings/new">
+                <Plus />
+              </Link>
+            </IconButton>
+          </div>
         </div>
         {meetingsError && (
           <p className="mt-4 text-sm text-destructive">{meetingsError}</p>

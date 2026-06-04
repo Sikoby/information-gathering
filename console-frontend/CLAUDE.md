@@ -4,7 +4,7 @@
 
 ## What this is
 
-The **meeting console** SPA — where a user writes a prompt, gets a generated **template**, edits it, and starts one meeting after another from it (one running at a time). Templates and meetings are two separate entities here; the dashboard lists both. It is a different app from the in-meeting viewer in [`../frontend/`](../frontend/): this one is interactive and has a **router**; the viewer is read-only and single-page.
+The **meeting console** SPA — where a user writes a prompt, gets a generated **template**, edits it, and starts meetings from it — one at a time, or a **batch** that interviews many people in parallel. Templates and meetings are two separate entities here; the dashboard lists both. It is a different app from the in-meeting viewer in [`../frontend/`](../frontend/): this one is interactive and has a **router**; the viewer is read-only and single-page.
 
 React 18 + TypeScript + Vite + Tailwind, an npm-workspace member. It depends on the shared component library [`@ig/ui`](../shared/) and on `react-router-dom`. It is built into its own container ([Dockerfile.console-frontend](../Dockerfile.console-frontend)): an **nginx** image that serves the static bundle and reverse-proxies `/api` to the `console` backend (so the browser is always same-origin — no CORS).
 
@@ -16,7 +16,7 @@ console-frontend/
   nginx.conf                serve static + proxy /api + /healthz to console:8770
   src/
     main.tsx                createRoot + <BrowserRouter>
-    App.tsx                 <AuthGate> (global Header/Footer chrome + account menu) + <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/new , /meetings/:id
+    App.tsx                 <AuthGate> (global Header/Footer chrome + account menu) + <Routes>: / , /welcome , /templates/new , /templates/:id , /meetings/new , /meetings/batch , /meetings/:id
     types.ts                TemplateRecord + MeetingRecord — keep in sync with src/console/models.py
     lib/
       api.ts                fetch wrappers for /api/* + ApiError (carries status code for 401 branching)
@@ -29,10 +29,11 @@ console-frontend/
       useMeetings.ts        dashboard meeting list, polls every 5s
       useMeeting.ts         one meeting, polls 3s only while running
     pages/
-      Dashboard.tsx         two stacked sections: Templates (top) + Meetings (Scheduled/Running/Done); each section heading carries a concept InfoTooltip + a New … button
+      Dashboard.tsx         two stacked sections: Templates (top) + Meetings (Scheduled/Running/Done); each section heading carries a concept InfoTooltip + a New … button (Meetings also has a `Users` batch-create button)
       Welcome.tsx             one-screen onboarding shown on first visit per tab
       NewTemplate.tsx       the prompt form + optional .pptx/.pdf upload
       NewMeeting.tsx        the single meeting-creation surface: template picker + Start now / Schedule (time + invitees → .ics)
+      NewBatchMeetings.tsx  batch creation: same picker + Start now / Schedule, but a repeatable interviewee (name + email) list → N parallel meetings
       TemplateDetail.tsx    generating spinner / failed / editor + "Start" (routes to /meetings/new?template=<id>); Prompt/Template headings carry concept InfoTooltips
       MeetingDetail.tsx     slim scheduled/live/done view with "open source template" link + copy-link / add-to-calendar buttons
     components/
@@ -46,7 +47,7 @@ console-frontend/
       TemplateEditor.tsx    section-tree editor — edits the "_root" node's children directly (the structural root is hidden); rows start collapsed, with Expand all / Collapse all; the topic/question kind toggle and the delete button sit inline in each row header; concept InfoTooltips on the Sections heading and field labels
 ```
 
-When `NewTemplate` includes a file, the form submits multipart to `/api/templates/upload`; otherwise it stays on the JSON path. `TemplateDetail` shows a small chip with the document filename + slide count when one was attached, and its "Start meeting" button (disabled, with a hint, while any other meeting is running) saves any pending edits then navigates to `/meetings/new?template=<id>` — there is no start-meeting modal. `NewMeeting` is the one place meetings are created: pick a ready template (preselected from the `?template=` deep link), set a title + duration, then choose a mode. **Start now** calls `POST /api/templates/:id/meetings` and shows a result panel with copyable join + live-view links (`CopyButton`). **Schedule** adds a `datetime-local` start time + an invitees field (comma/newline emails → `string[]`) and calls `POST /api/templates/:id/scheduled-meetings`; its result panel offers **Add to calendar (.ics)** (a download `<a>` to `meetingInviteIcsUrl(id)`), a copyable stable live-view link, and the invited list. It is reachable from the dashboard **New meeting** button and from any template's Start button.
+When `NewTemplate` includes a file, the form submits multipart to `/api/templates/upload`; otherwise it stays on the JSON path. `TemplateDetail` shows a small chip with the document filename + slide count when one was attached, and its "Start meeting" button saves any pending edits then navigates to `/meetings/new?template=<id>` — there is no start-meeting modal. `NewMeeting` creates a single meeting: pick a ready template (preselected from the `?template=` deep link), set a title + duration, then choose a mode. **Start now** calls `POST /api/templates/:id/meetings` and shows a result panel with copyable join + live-view links (`CopyButton`). **Schedule** adds a `datetime-local` start time + an invitees field (comma/newline emails → `string[]`) and calls `POST /api/templates/:id/scheduled-meetings`; its result panel offers **Add to calendar (.ics)** (a download `<a>` to `meetingInviteIcsUrl(id)`), a copyable stable live-view link, and the invited list. It is reachable from the dashboard **New meeting** button and from any template's Start button. `NewBatchMeetings` (`/meetings/batch`, the dashboard's **Users** button) mirrors `NewMeeting` but swaps the single title/invitees for a repeatable **interviewee** list — one `[Name] [Email]` row per person (`ListPlus` to add, `X` to remove; the last row isn't removable), the name becoming each meeting's title and the email its invitee. **Start now** → `POST /api/templates/:id/batch-meetings`, **Schedule** → `…/scheduled-batch-meetings`, each launching one parallel meeting per row; a combined result panel lists every created meeting (with per-row join/live links or `.ics`) above a destructive `Alert` enumerating any per-row failures.
 
 Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come from `@ig/ui` — do not copy shadcn components in here; add them to [`../shared/`](../shared/).
 
@@ -62,7 +63,7 @@ Shared UI primitives (`Button`, `Card`, `Input`, `Textarea`, `Badge`, ...) come 
 - Routing is `BrowserRouter`; deep links work because nginx falls back to `index.html` (`try_files`).
 - Polling, not SSE. `useTemplate` polls only while `template_status === "generating"`, `useMeeting` only while `status === "running"` or `"scheduled"` (so a scheduled meeting's detail page flips to running the moment deferred dispatch fires) — so polling never clobbers in-progress template edits in `TemplateDetail`.
 - `TemplateDetail` holds a local `draft` re-initialised when `template_id`/`generation_seq`/`template_status` changes (see the `draftKey` effect).
-- `types.ts` mirrors `src/console/models.py` — keep them in sync. Both `TemplateRecord` and `MeetingRecord` carry `owner_email`.
+- `types.ts` mirrors `src/console/models.py` — keep them in sync. Both `TemplateRecord` and `MeetingRecord` carry `owner_email`. Batch create adds the `Interviewee` (`{name, email}`) type plus the `BatchStartResult` / `BatchScheduleResult` response shapes.
 - First visit per tab is redirected from `/` to `/welcome`; `sessionStorage['welcome:dismissed']` clears the redirect for the rest of that tab session.
 
 ## Auth
@@ -119,7 +120,7 @@ One icon per action, used the same way everywhere:
 
 When two buttons share an icon (the two Copy buttons, the `Plus` on both dashboard cards), the `label`/tooltip disambiguates them. A busy action swaps its icon for a spinning `Loader2` and updates its `label` ("Saving…", "Starting…").
 
-**The only text exception** is the two onboarding CTAs on `Welcome` ("Skip", "Got it, take me to the dashboard") — a first-run screen where a bare icon would be cryptic. Everything that is *not* a button keeps its text: `DropdownMenuItem` rows (the Sign out item), the file-upload `<label>` dropzone, `<select>` menus, and inline text links inside `Alert`s or status lines (e.g. "another meeting is running →").
+**The only text exception** is the two onboarding CTAs on `Welcome` ("Skip", "Got it, take me to the dashboard") — a first-run screen where a bare icon would be cryptic. Everything that is *not* a button keeps its text: `DropdownMenuItem` rows (the Sign out item), the file-upload `<label>` dropzone, `<select>` menus, and inline text links inside `Alert`s or status lines (e.g. the "open source template" link on a meeting page).
 
 ### Use the shared console components — don't re-implement
 

@@ -114,7 +114,7 @@ export function Welcome() {
             </h3>
             <p className="mt-2 text-muted-foreground">
               A live, AI-run instance of a template. Goes from running to done.
-              Only one runs at a time.
+              Several can run in parallel.
             </p>
           </div>
         </div>

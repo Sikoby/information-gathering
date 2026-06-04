@@ -79,3 +79,20 @@ export type ReferenceTemplate = {
   name: string;
   description: string;
 };
+
+/** One person in a batch run: optional display name + their email. */
+export type Interviewee = {
+  name: string | null;
+  email: string;
+};
+
+/** `POST /api/templates/{id}/batch-meetings` response (best-effort). */
+export type BatchStartResult = {
+  meetings: MeetingRecord[];
+  errors: { name: string | null; email: string; error: string }[];
+};
+
+/** `POST /api/templates/{id}/scheduled-batch-meetings` response. */
+export type BatchScheduleResult = {
+  meetings: MeetingRecord[];
+};
