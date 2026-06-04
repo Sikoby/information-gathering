@@ -6,9 +6,10 @@ import {
   CalendarPlus,
   LayoutDashboard,
   Play,
-  X,
+  Plus,
+  Trash2,
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Input, Textarea } from "@ig/ui";
+import { Alert, AlertDescription, AlertTitle, Calendar, Input } from "@ig/ui";
 import { useTemplates } from "@/hooks/useTemplates";
 import {
   meetingInviteIcsUrl,
@@ -26,21 +27,12 @@ import type { MeetingRecord } from "@/types";
 
 type Mode = "now" | "schedule";
 
-/** Emails separated by commas, semicolons, or whitespace → trimmed list. */
-function parseInvitees(raw: string): string[] {
-  return raw
-    .split(/[\s,;]+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-/** Local-time value for a `<input type="datetime-local">` (no seconds). */
-function toLocalInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  );
+/** Merge a picked calendar day with an `HH:mm` time string into one Date. */
+function combineDayTime(day: Date, time: string): Date {
+  const [h, m] = time.split(":").map(Number);
+  const d = new Date(day);
+  d.setHours(Number.isFinite(h) ? h : 0, Number.isFinite(m) ? m : 0, 0, 0);
+  return d;
 }
 
 export function NewMeeting() {
@@ -55,19 +47,25 @@ export function NewMeeting() {
   );
 
   const [templateId, setTemplateId] = useState("");
-  const [mode, setMode] = useState<Mode>("now");
   const [title, setTitle] = useState("");
   // null = "follow the template default"; a number once the user edits it.
   const [minutes, setMinutes] = useState<number | null>(null);
-  const [scheduledAt, setScheduledAt] = useState(""); // datetime-local value
-  const [invitees, setInvitees] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [scheduledDay, setScheduledDay] = useState<Date | undefined>(undefined);
+  const [scheduledTime, setScheduledTime] = useState("09:00");
+  // One email per row; starts with a single empty row.
+  const [invitees, setInvitees] = useState<string[]>([""]);
+  // which action is in flight (so only that section's button spins), or null.
+  const [busy, setBusy] = useState<Mode | null>(null);
+  const [error, setError] = useState<{ mode: Mode; message: string } | null>(null);
   const [result, setResult] = useState<MeetingRecord | null>(null);
 
-  // Floor the picker at "now" so the obvious mistake (a past time) can't be
-  // entered; the backend re-checks against its own clock.
-  const minLocal = useMemo(() => toLocalInputValue(new Date()), []);
+  // Floor the calendar at today so past days can't be picked; the backend
+  // re-checks the full instant against its own clock.
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   // Pick an initial template once the list loads (the ?template= deep link, or
   // the newest ready one). Runs once — guarded on templateId being empty.
@@ -86,9 +84,17 @@ export function NewMeeting() {
   const targetOverride =
     effectiveMinutes !== defaultMinutes ? effectiveMinutes : undefined;
 
+  const updateInvitee = (i: number, value: string) =>
+    setInvitees((prev) => prev.map((e, idx) => (idx === i ? value : e)));
+  const addInvitee = () => setInvitees((prev) => [...prev, ""]);
+  const removeInvitee = (i: number) =>
+    setInvitees((prev) =>
+      prev.length === 1 ? [""] : prev.filter((_, idx) => idx !== i),
+    );
+
   const onStartNow = async () => {
     if (!selected) return;
-    setBusy(true);
+    setBusy("now");
     setError(null);
     try {
       const meeting = await startMeetingFromTemplate(selected.template_id, {
@@ -97,28 +103,28 @@ export function NewMeeting() {
       });
       setResult(meeting);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError({ mode: "now", message: e instanceof Error ? e.message : String(e) });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const onSchedule = async () => {
-    if (!selected || !scheduledAt) return;
-    setBusy(true);
+    if (!selected || !scheduledDay) return;
+    setBusy("schedule");
     setError(null);
     try {
       const meeting = await scheduleMeetingFromTemplate(selected.template_id, {
-        scheduled_at: new Date(scheduledAt).toISOString(),
+        scheduled_at: combineDayTime(scheduledDay, scheduledTime).toISOString(),
         title_override: title.trim() || undefined,
         target_minutes: targetOverride,
-        invitees: parseInvitees(invitees),
+        invitees: invitees.map((e) => e.trim()).filter(Boolean),
       });
       setResult(meeting);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError({ mode: "schedule", message: e instanceof Error ? e.message : String(e) });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
@@ -162,23 +168,6 @@ export function NewMeeting() {
                 </select>
               </Field>
 
-              <div className="inline-flex gap-0.5 rounded-md border p-0.5">
-                <IconButton
-                  variant={mode === "now" ? "default" : "ghost"}
-                  onClick={() => setMode("now")}
-                  label="Start now"
-                >
-                  <Play />
-                </IconButton>
-                <IconButton
-                  variant={mode === "schedule" ? "default" : "ghost"}
-                  onClick={() => setMode("schedule")}
-                  label="Schedule"
-                >
-                  <CalendarClock />
-                </IconButton>
-              </div>
-
               <Field label="Title" hint="Defaults to the template title.">
                 <Input
                   className="mt-1"
@@ -200,68 +189,113 @@ export function NewMeeting() {
                 />
               </Field>
 
-              {mode === "schedule" && (
-                <>
-                  <Field label="Start time">
-                    <Input
-                      className="mt-1 w-64"
-                      type="datetime-local"
-                      min={minLocal}
-                      value={scheduledAt}
-                      onChange={(e) => setScheduledAt(e.target.value)}
-                    />
-                  </Field>
+              <section className="space-y-4 border-t pt-6">
+                <h2 className="text-sm font-semibold text-muted-foreground">
+                  Start now
+                </h2>
 
-                  <Field
-                    label="Invitees"
-                    hint="Emails separated by commas or new lines. Each gets a calendar invite (.ics) you download and send."
-                  >
-                    <Textarea
-                      className="mt-1"
-                      rows={3}
-                      value={invitees}
-                      onChange={(e) => setInvitees(e.target.value)}
-                      placeholder="alice@example.com, bob@example.com"
-                    />
-                  </Field>
-                </>
-              )}
-
-              {error && (
-                <Alert variant="destructive">
-                  <AlertTitle>
-                    {mode === "now"
-                      ? "Couldn't start the meeting"
-                      : "Couldn't schedule the meeting"}
-                  </AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex items-center gap-2 border-t pt-4">
-                {mode === "now" ? (
-                  <IconButton
-                    onClick={onStartNow}
-                    disabled={busy || !selected}
-                    label={busy ? "Starting…" : "Start"}
-                  >
-                    <Play />
-                  </IconButton>
-                ) : (
-                  <IconButton
-                    onClick={onSchedule}
-                    disabled={busy || !selected || !scheduledAt}
-                    label={busy ? "Scheduling…" : "Schedule meeting"}
-                  >
-                    <CalendarClock />
-                  </IconButton>
+                {error?.mode === "now" && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Couldn't start the meeting</AlertTitle>
+                    <AlertDescription>{error.message}</AlertDescription>
+                  </Alert>
                 )}
-                <IconButton variant="ghost" asChild label="Cancel">
-                  <Link to="/">
-                    <X />
-                  </Link>
+
+                <IconButton
+                  onClick={onStartNow}
+                  disabled={busy !== null || !selected}
+                  label={busy === "now" ? "Starting…" : "Start"}
+                >
+                  <Play />
                 </IconButton>
-              </div>
+              </section>
+
+              <section className="space-y-4 border-t pt-6">
+                <h2 className="text-sm font-semibold text-muted-foreground">
+                  Schedule for later
+                </h2>
+
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium">Date and time</h3>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                    <Calendar
+                      mode="single"
+                      selected={scheduledDay}
+                      onSelect={setScheduledDay}
+                      disabled={{ before: today }}
+                      className="rounded-md border p-3"
+                    />
+                    <div className="space-y-1.5">
+                      <Input
+                        type="time"
+                        className="w-36"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
+                      />
+                      {scheduledDay && (
+                        <p className="text-sm text-muted-foreground">
+                          Starts{" "}
+                          {formatDateTime(
+                            combineDayTime(
+                              scheduledDay,
+                              scheduledTime,
+                            ).toISOString(),
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <Field
+                  label="Attendees"
+                  info="Each attendee gets a calendar invite (.ics) you download and send."
+                >
+                  <div className="mt-1 space-y-2">
+                    {invitees.map((email, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input
+                          type="email"
+                          value={email}
+                          onChange={(e) => updateInvitee(i, e.target.value)}
+                          placeholder="alice@example.com"
+                        />
+                        <IconButton
+                          variant="ghost"
+                          size="sm"
+                          className="shrink-0 text-destructive"
+                          label="Remove attendee"
+                          onClick={() => removeInvitee(i)}
+                        >
+                          <Trash2 />
+                        </IconButton>
+                      </div>
+                    ))}
+                    <IconButton
+                      size="sm"
+                      label="Add attendee"
+                      onClick={addInvitee}
+                    >
+                      <Plus />
+                    </IconButton>
+                  </div>
+                </Field>
+
+                {error?.mode === "schedule" && (
+                  <Alert variant="destructive">
+                    <AlertTitle>Couldn't schedule the meeting</AlertTitle>
+                    <AlertDescription>{error.message}</AlertDescription>
+                  </Alert>
+                )}
+
+                <IconButton
+                  onClick={onSchedule}
+                  disabled={busy !== null || !selected || !scheduledDay}
+                  label={busy === "schedule" ? "Scheduling…" : "Schedule meeting"}
+                >
+                  <CalendarClock />
+                </IconButton>
+              </section>
             </div>
           )
         )}

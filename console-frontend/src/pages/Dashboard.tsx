@@ -8,6 +8,7 @@ import { useTemplates } from "@/hooks/useTemplates";
 import { useMeetings } from "@/hooks/useMeetings";
 import { TemplateCard } from "@/components/TemplateCard";
 import { MeetingCard } from "@/components/MeetingCard";
+import { MeetingsCalendar } from "@/components/MeetingsCalendar";
 import type { MeetingStatus } from "@/types";
 
 const MEETING_GROUPS: { status: MeetingStatus; label: string }[] = [
@@ -97,6 +98,7 @@ export function Dashboard() {
             No meetings yet.
           </p>
         )}
+        <MeetingsCalendar meetings={meetings} templateById={templateById} />
         <div className="mt-6 grid gap-6 md:grid-cols-3">
           {MEETING_GROUPS.map((group) => {
             const items = meetings.filter((m) => m.status === group.status);

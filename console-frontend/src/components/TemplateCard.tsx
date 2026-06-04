@@ -3,7 +3,7 @@ import { Card } from "@ig/ui";
 import { FileText } from "lucide-react";
 import type { TemplateRecord } from "@/types";
 import { relativeTime } from "@/lib/format";
-import { TemplateStatusBadge } from "./StatusBadge";
+import { TemplateStatusIndicator } from "./TemplateStatusIndicator";
 
 export function TemplateCard({ template }: { template: TemplateRecord }) {
   return (
@@ -11,7 +11,7 @@ export function TemplateCard({ template }: { template: TemplateRecord }) {
       <Card className="p-4 transition-colors hover:bg-accent">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-medium leading-tight">{template.title}</h3>
-          <TemplateStatusBadge status={template.template_status} />
+          <TemplateStatusIndicator status={template.template_status} />
         </div>
         <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
           {template.source_prompt}

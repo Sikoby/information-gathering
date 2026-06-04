@@ -22,6 +22,20 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+/** Local time of day for an ISO string, e.g. "3:00 PM". */
+export function formatTimeOfDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, { timeStyle: "short" });
+}
+
+/** Stable per-local-day key (e.g. "Wed Jun 17 2026") for grouping by calendar day. */
+export function localDayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toDateString();
+}
+
 /** Whole seconds elapsed since an ISO timestamp (never negative). */
 export function elapsedSeconds(iso: string): number {
   const then = new Date(iso).getTime();

@@ -7,6 +7,7 @@ import { useTemplate } from "@/hooks/useTemplate";
 import { deleteMeeting, meetingInviteIcsUrl } from "@/lib/api";
 import { CopyButton } from "@/components/CopyButton";
 import { StatusBadge } from "@/components/StatusBadge";
+import { TemplateStatusIndicator } from "@/components/TemplateStatusIndicator";
 import { InviteesList } from "@/components/InviteesList";
 import { Page, PageHeader, CenteredMessage } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
@@ -45,7 +46,13 @@ export function MeetingDetail() {
       <PageHeader
         back
         title={displayTitle}
-        badge={<StatusBadge status={meeting.status} />}
+        badge={
+          meeting.status === "scheduled" ? (
+            <TemplateStatusIndicator status="scheduled" />
+          ) : (
+            <StatusBadge status={meeting.status} />
+          )
+        }
       />
 
       {actionError && (
