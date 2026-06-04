@@ -38,7 +38,7 @@ src/console/
 
 Every `/api/*` request runs through [`auth.py`](auth.py) middleware which reads `Cf-Access-Authenticated-User-Email` (Cloudflare Access in prod), falls back to `CONSOLE_DEV_USER_EMAIL` for local dev, lowercases + strips, and stuffs the result on `request["user_email"]`. Missing identity → `401`. `/healthz` skips the middleware.
 
-Templates and meetings each carry an `owner_email`. List endpoints scope to the caller's per-user index; per-id endpoints return `404` on owner mismatch (not `403`, so we don't leak existence). The one-meeting-at-a-time guard is **per user**, locked on `console:start:lock:<email>`.
+Templates and meetings each carry an `owner_email`. List endpoints scope to the caller's per-user index; per-id endpoints return `404` on owner mismatch (not `403`, so we don't leak existence).
 
 `auth.py` also builds the team-domain logout URL returned by `GET /api/me` from the `CONSOLE_CF_TEAM_DOMAIN` env var. The per-application logout (`<app-domain>/cdn-cgi/access/logout`) can fail with "Unable to find your Access organization!"; the team-domain URL is hosted on the org and always resolves.
 
@@ -57,8 +57,10 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `PATCH /api/templates/{id}` | Edit `title` / `source_prompt` / `template` / `default_target_minutes`. `404` on owner mismatch. Always editable when owned; `400` on an invalid template. Edits do not affect in-flight meetings (the agent already holds the template in-process from dispatch metadata). |
 | `POST /api/templates/{id}/regenerate` | `404` on owner mismatch. Bumps `generation_seq`, resets `template_status` to `generating`, re-runs generation (the stored `document_outline` is passed through, so document-driven regenerations don't need re-upload). `202`. |
 | `DELETE /api/templates/{id}` | `204` if no meetings reference it; otherwise `409` with `{total_count, running_count}`. `404` on owner mismatch. The referencing-meetings check looks at the caller's meetings only. |
-| `POST /api/templates/{id}/meetings` | Body `MeetingStartFromTemplate` (`title_override?`, `target_minutes?`). `404` on owner mismatch. Stamps the new meeting with the caller's `owner_email`. `424` if template is not `ready`; `409` if the caller already has a running meeting (per-user guard, leader-locked on `console:start:lock:<email>`); `502` if dispatch fails. `201` with the new meeting on success. |
-| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch and does **not** apply the one-at-a-time guard (future meetings don't conflict yet). Creates a `status="scheduled"` record with a deterministic `webapp_url` (so the invite has a stable link before dispatch) and calls the `invites.send_invites` placeholder. `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
+| `POST /api/templates/{id}/meetings` | Body `MeetingStartFromTemplate` (`title_override?`, `target_minutes?`). `404` on owner mismatch. Stamps the new meeting with the caller's `owner_email`. `424` if template is not `ready`; `502` if dispatch fails. `201` with the new meeting on success. Meetings run concurrently — there is no per-user limit. |
+| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch. Creates a `status="scheduled"` record with a deterministic `webapp_url` (so the invite has a stable link before dispatch) and calls the `invites.send_invites` placeholder. `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
+| `POST /api/templates/{id}/batch-meetings` | Body `BatchStartFromTemplate` (`target_minutes?`, `title_prefix?`, `interviewees` — each `{name?, email}`, ≥1, no cap). `404` on owner mismatch; `424` if template is not `ready`. **Best-effort**: dispatches + creates one `status="running"` meeting per interviewee (name → `title_override`, email → its single invitee), collecting per-row failures. `201` with `{meetings: [...], errors: [...]}` — an all-failed batch still returns `201` with empty `meetings`. |
+| `POST /api/templates/{id}/scheduled-batch-meetings` | Body `BatchScheduleFromTemplate` (the above + `scheduled_at`). `404` on owner mismatch; `424` if not `ready`; `400` if `scheduled_at` is not in the future. Creates one `status="scheduled"` meeting per interviewee (deterministic `webapp_url`, `invites.send_invites` each); no dispatch. `201` with `{meetings: [...]}`. The reconcile loop dispatches each when its `scheduled_at` arrives. |
 
 **Meetings** — instances + audit log:
 
@@ -88,16 +90,15 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `templates:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/templates`. Written alongside the global index on create, removed on delete. |
 | `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord` — carries `owner_email` plus `status` (`scheduled`\|`running`\|`done`), `title_override?`, `target_minutes`, LiveKit run info, and lifecycle timestamps. A `scheduled` meeting also carries `scheduled_at`, `invitees`, and `invite_sent_at?`. `invitees` is stored as an embedded JSON *string* (like the template's nested fields) so the Lua merge never round-trips the list through cjson — which would collapse an empty list to `{}` and corrupt the record. No template body lives here. |
 | `meetings:index` | sorted set | member=`meeting_id`, score=created epoch. **Global** — backs the reconcile loop's running-meeting sweep. |
-| `meetings:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/meetings` and the per-user start-meeting concurrency check. |
+| `meetings:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/meetings`. |
 | `console:reconcile:leader` | string | short-TTL leader lock for the reconcile loop. |
-| `console:start:lock:<email>` | string | short-TTL lock around the per-user start-meeting handler so concurrent replicas can't both see "nothing running for this user" and both start. |
 
 `template_id = "template-" + uuid4().hex`; `meeting_id = "meeting-" + uuid4().hex` and is reused as the dispatch `run_id`.
 
 ## Background tasks
 
 - **Generation** ([generation.py](generation.py)) — spawned per template create/regenerate. Calls template-generator `POST /generate` (1-4 min), writes the result back into `template:<id>` guarded by `generation_seq` (so an edit mid-generation is never clobbered).
-- **Reconcile** ([reconcile.py](reconcile.py)) — every `CONSOLE_RECONCILE_INTERVAL`s, under a leader lock, three passes: (1) **dispatches `scheduled` meetings** whose `scheduled_at` has arrived (deferred dispatch — mints the LiveKit token at start, flips them to `running`); a due meeting yields to the per-user one-at-a-time guard, deferred a tick if the owner already has a running meeting, and is retired `done`/`schedule_missed` past `CONSOLE_SCHEDULE_LATE_CEILING_HOURS`. (2) moves `running` meetings to `done` by reading `state:<run_id>.end_reason` (grace window + 24h ceiling for crashed/SIGKILLed agents). (3) reaps template generations stuck past ~10 min.
+- **Reconcile** ([reconcile.py](reconcile.py)) — every `CONSOLE_RECONCILE_INTERVAL`s, under a leader lock, three passes: (1) **dispatches `scheduled` meetings** whose `scheduled_at` has arrived (deferred dispatch — mints the LiveKit token at start, flips them to `running`); a due meeting is retired `done`/`schedule_missed` past `CONSOLE_SCHEDULE_LATE_CEILING_HOURS`. (2) moves `running` meetings to `done` by reading `state:<run_id>.end_reason` (grace window + 24h ceiling for crashed/SIGKILLed agents). (3) reaps template generations stuck past ~10 min.
 
 ## Env vars
 
@@ -155,4 +156,11 @@ curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
 # To watch deferred dispatch, schedule ~2 min out, lower
 # CONSOLE_RECONCILE_INTERVAL, and poll GET /api/meetings/<id> until it
 # flips scheduled -> running and gains a join_url.
+
+# Batch start (N parallel rooms from one template, one per interviewee):
+curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
+     -X POST http://localhost:8770/api/templates/<id>/batch-meetings \
+     -H 'Content-Type: application/json' \
+     -d '{"interviewees":[{"name":"Ada","email":"ada@x.test"},{"name":"Linus","email":"linus@x.test"}]}'
+# → 201 {meetings:[...two running, distinct meeting_id/run_id...], errors:[]}
 ```

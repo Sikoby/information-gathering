@@ -21,6 +21,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { NewTemplate } from "@/pages/NewTemplate";
 import { TemplateDetail } from "@/pages/TemplateDetail";
 import { NewMeeting } from "@/pages/NewMeeting";
+import { NewBatchMeetings } from "@/pages/NewBatchMeetings";
 import { MeetingDetail } from "@/pages/MeetingDetail";
 import { Welcome } from "@/pages/Welcome";
 
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/templates/new" element={<NewTemplate />} />
           <Route path="/templates/:id" element={<TemplateDetail />} />
           <Route path="/meetings/new" element={<NewMeeting />} />
+          <Route path="/meetings/batch" element={<NewBatchMeetings />} />
           <Route path="/meetings/:id" element={<MeetingDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

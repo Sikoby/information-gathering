@@ -73,6 +73,14 @@ def build_app() -> web.Application:
         "/api/templates/{template_id}/scheduled-meetings",
         handlers.post_template_schedule_meeting,
     )
+    app.router.add_post(
+        "/api/templates/{template_id}/batch-meetings",
+        handlers.post_template_start_batch,
+    )
+    app.router.add_post(
+        "/api/templates/{template_id}/scheduled-batch-meetings",
+        handlers.post_template_schedule_batch,
+    )
     app.router.add_get("/api/meetings", handlers.get_meetings)
     app.router.add_get("/api/meetings/{meeting_id}", handlers.get_meeting)
     app.router.add_get(

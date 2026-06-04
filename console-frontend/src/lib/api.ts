@@ -1,4 +1,7 @@
 import type {
+  BatchScheduleResult,
+  BatchStartResult,
+  Interviewee,
   MeetingRecord,
   ReferenceTemplate,
   Template,
@@ -133,6 +136,35 @@ export function scheduleMeetingFromTemplate(
   },
 ): Promise<MeetingRecord> {
   return req(`/api/templates/${id}/scheduled-meetings`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function startBatchFromTemplate(
+  id: string,
+  body: {
+    target_minutes?: number;
+    title_prefix?: string;
+    interviewees: Interviewee[];
+  },
+): Promise<BatchStartResult> {
+  return req(`/api/templates/${id}/batch-meetings`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function scheduleBatchFromTemplate(
+  id: string,
+  body: {
+    scheduled_at: string;
+    target_minutes?: number;
+    title_prefix?: string;
+    interviewees: Interviewee[];
+  },
+): Promise<BatchScheduleResult> {
+  return req(`/api/templates/${id}/scheduled-batch-meetings`, {
     method: "POST",
     body: JSON.stringify(body),
   });

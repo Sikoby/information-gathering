@@ -4,7 +4,7 @@
 
 ## What this is
 
-A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, a kinded `Section` tree with the agent's findings, a typed transition log, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a **reusable template** from a prompt — or from an uploaded `.pptx`/`.pdf` (slides become topics, speaker notes become the agent's script) — edit it, and then launch one meeting after another from the same template (one meeting at a time).
+A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an interview-style meeting against a free-form markdown briefing, and writes a structured `MeetingState` (transcript, a kinded `Section` tree with the agent's findings, a typed transition log, follow-ups) to disk. A read-only React webapp streams the same state live to anyone with the meeting link. A separate **meeting console** lets a non-developer create a **reusable template** from a prompt — or from an uploaded `.pptx`/`.pdf` (slides become topics, speaker notes become the agent's script) — edit it, and then launch meetings from the same template — one at a time, or a **batch** that interviews many people in parallel, each in their own room.
 
 ## Services
 
@@ -43,7 +43,7 @@ browser ─▶ console-frontend (nginx) ─▶ console API
                                           │ POST /api/templates ─▶ writes template:<id> (Generating → Ready)
                                           │   └ generation calls template-generator /generate (impl+critique loop)
                                           │ user edits the template + prompt
-                                          │ POST /api/templates/<id>/meetings
+                                          │ POST /api/templates/<id>/meetings        (or /batch-meetings — N people, parallel rooms)
                                           │   ├ POST /dispatch ─▶ dispatch
                                           │   └ writes meeting:<id> to Redis (Running → Done)
                                           (template stays; user can start more meetings from it)
@@ -74,7 +74,7 @@ Either way, dispatch then:
                                                   webapp container ── SSE ──▶ browser
 ```
 
-The agent is long-running and registered with LiveKit as `briefing-agent`. The console uses each `meeting_id` as the dispatch `run_id`, so a single meeting has one id across the registry, the LiveKit room, and the webapp viewer URL. The console's reconcile loop reads `state:<run_id>` to move the meeting Running → Done. A meeting is born `running` (start-now) or `scheduled` (a future start); a scheduled meeting carries `scheduled_at` + `invitees` and is **dispatched later by the reconcile loop** when its start time arrives, so the short-lived LiveKit voice-join token is minted then, not at schedule time. The console serves a downloadable `.ics` calendar invite (`GET /api/meetings/<id>/invite.ics`) that points at the meeting's stable public live-view page; server-side email is a placeholder ([src/console/invites.py](src/console/invites.py)). There is no `planned` state on the meeting side (the equivalent lives on the template as `template_status: generating | ready | failed`).
+The agent is long-running and registered with LiveKit as `briefing-agent`. The console uses each `meeting_id` as the dispatch `run_id`, so a single meeting has one id across the registry, the LiveKit room, and the webapp viewer URL. The console's reconcile loop reads `state:<run_id>` to move the meeting Running → Done. Meetings run concurrently — there is no per-user limit — and a **batch** create (`POST /api/templates/<id>/batch-meetings`, or `…/scheduled-batch-meetings` for a future start) launches N meetings at once from one template, one per interviewee (the person's name becomes the meeting title, their email its single invitee). A meeting is born `running` (start-now) or `scheduled` (a future start); a scheduled meeting carries `scheduled_at` + `invitees` and is **dispatched later by the reconcile loop** when its start time arrives, so the short-lived LiveKit voice-join token is minted then, not at schedule time. The console serves a downloadable `.ics` calendar invite (`GET /api/meetings/<id>/invite.ics`) that points at the meeting's stable public live-view page; server-side email is a placeholder ([src/console/invites.py](src/console/invites.py)). There is no `planned` state on the meeting side (the equivalent lives on the template as `template_status: generating | ready | failed`).
 
 ## Redis schema
 
@@ -90,7 +90,6 @@ The agent is long-running and registered with LiveKit as `briefing-agent`. The c
 | `meetings:index` | sorted set | console | console | meeting_ids scored by created-at; global, used by the reconcile loop |
 | `meetings:owner:<email>` | sorted set | console | console | the user's meetings, scored by created-at; backs `GET /api/meetings` |
 | `console:reconcile:leader` | string | console | console | short-TTL leader lock for the reconcile loop |
-| `console:start:lock:<email>` | string | console | console | short-TTL lock around the per-user start-meeting handler |
 
 Redis runs with AOF persistence (`--appendonly yes`) and a named volume so the template + meeting registries survive restarts.
 
@@ -150,7 +149,7 @@ For a production deploy (single Hetzner VM, Cloudflare Tunnel for ingress + TLS,
 
 ## Console identity
 
-The console is **per-user**: every template and every meeting carries an `owner_email`, and the list endpoints (`GET /api/templates`, `GET /api/meetings`) only return records owned by the caller. The "one meeting at a time" guard is per-user too.
+The console is **per-user**: every template and every meeting carries an `owner_email`, and the list endpoints (`GET /api/templates`, `GET /api/meetings`) only return records owned by the caller.
 
 Identity comes from the `Cf-Access-Authenticated-User-Email` request header that Cloudflare Access stamps onto every prod request once the user has signed in. In local dev there is no Cloudflare in front, so the console falls back to the `CONSOLE_DEV_USER_EMAIL` env var (defaults to `dev@local` in the compose file). Override it to simulate different users. In production the var is left empty, so a request without the Cloudflare header gets a `401`.
 
