@@ -12,10 +12,28 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Parsed JSON error body when the response had one. */
+    public body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
   }
+}
+
+function apiErrorFrom(status: number, statusText: string, text: string): ApiError {
+  let body: unknown;
+  try {
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    body = undefined;
+  }
+  const message =
+    body &&
+    typeof body === "object" &&
+    typeof (body as { error?: unknown }).error === "string"
+      ? (body as { error: string }).error
+      : text || `${status} ${statusText}`;
+  return new ApiError(status, message, body);
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
@@ -25,7 +43,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || `${res.status} ${res.statusText}`);
+    throw apiErrorFrom(res.status, res.statusText, text);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -82,7 +100,7 @@ export async function createTemplateFromDocument(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new ApiError(res.status, text || `${res.status} ${res.statusText}`);
+    throw apiErrorFrom(res.status, res.statusText, text);
   }
   return (await res.json()) as TemplateRecord;
 }

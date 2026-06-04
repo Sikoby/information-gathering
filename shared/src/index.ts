@@ -11,6 +11,7 @@ export * from "./components/ui/dropdown-menu";
 export * from "./components/ui/footer";
 export * from "./components/ui/header";
 export * from "./components/ui/input";
+export * from "./components/ui/modal";
 export * from "./components/ui/progress";
 export * from "./components/ui/separator";
 export * from "./components/ui/textarea";

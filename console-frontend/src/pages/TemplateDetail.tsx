@@ -10,9 +10,18 @@ import {
   Save,
   Trash2,
 } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle, Badge, InfoTooltip, Textarea } from "@ig/ui";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  InfoTooltip,
+  Modal,
+  Textarea,
+} from "@ig/ui";
 import { useTemplate } from "@/hooks/useTemplate";
 import {
+  ApiError,
   deleteTemplate,
   patchTemplate,
   regenerateTemplate,
@@ -49,6 +58,7 @@ export function TemplateDetail() {
   const [draftKey, setDraftKey] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!template) return;
@@ -112,12 +122,12 @@ export function TemplateDetail() {
 
   const onDelete = async () => {
     setBusy("delete");
-    setActionError(null);
+    setDeleteError(null);
     try {
       await deleteTemplate(template.template_id);
       navigate("/");
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : String(e));
+      setDeleteError(deleteErrorMessage(e));
       setBusy(null);
     }
   };
@@ -173,8 +183,35 @@ export function TemplateDetail() {
         />
       )}
 
+      <Modal
+        open={deleteError !== null}
+        onClose={() => setDeleteError(null)}
+        title="Can’t delete this template"
+        description={deleteError ?? undefined}
+      />
     </Page>
   );
+}
+
+/**
+ * Turn a failed template-delete into a human sentence. The backend returns a
+ * 409 with {total_count, running_count} when meetings still reference the
+ * template; everything else falls back to the raw error message.
+ */
+function deleteErrorMessage(e: unknown): string {
+  if (e instanceof ApiError && e.status === 409) {
+    const body = e.body as
+      | { total_count?: number; running_count?: number }
+      | undefined;
+    const total = body?.total_count ?? 0;
+    const running = body?.running_count ?? 0;
+    const count = `${total} meeting${total === 1 ? "" : "s"}`;
+    const runningNote =
+      running > 0 ? ` (${running} currently running)` : "";
+    const which = total === 1 ? "that meeting" : "those meetings";
+    return `This template is still used by ${count}${runningNote}. Delete ${which} first, then you can delete the template.`;
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 function DocumentBadge({
