@@ -1,12 +1,16 @@
-"""Standalone dev server: serves the webapp with a synthetic MeetingState.
+"""Standalone dev server: serves the meeting API with a synthetic MeetingState.
 
-Used for previewing the frontend without running a real LiveKit session.
-Opens at http://localhost:8767/dev/ (run_id="dev"). The root "/" redirects
-to "/dev/" for convenience.
+Used for previewing the frontend without running a real LiveKit session. Seeds a
+fake MeetingState into Redis under run_id="dev" and runs the `meeting` API on
+port 8771 (the port the meeting-frontend Vite dev server proxies `/api` to).
 
-Requires Redis to be running locally (the webapp reads state from Redis).
-Easiest: `docker compose up -d redis` from the repo root before launching
-this script, or `docker run --rm -p 6379:6379 redis:7-alpine`.
+To preview the UI:
+1. `docker compose up -d redis`  (the meeting API reads state from Redis)
+2. `uv run python scripts/preview_dev_server.py`  (this script)
+3. `npm run dev -w meeting-frontend`  (Vite, proxies /api → :8771)
+4. open http://localhost:5173/dev/
+
+Requires Redis to be running locally.
 """
 
 from __future__ import annotations
@@ -21,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from aiohttp import web
 
-from src import webapp
+from src import meeting
 from src.harness import (
     Followup,
     MeetingState,
@@ -36,11 +40,11 @@ from src.templates import (
     SectionKind,
     TEMPLATES,
 )
-from src.webapp.publisher import register
-from src.webapp.server import build_app
+from src.meeting.publisher import register
+from src.meeting.server import build_app
 
 
-PORT = 8767
+PORT = 8771
 RUN_ID = "dev"
 
 
@@ -49,7 +53,8 @@ def _build_state() -> MeetingState:
     template = TEMPLATES["requirements"]
     sections = new_state_sections(template)
 
-    # Frame the meeting (what frame_meeting would have written).
+    # Seed the root MEETING card (the agent now seeds this from the template;
+    # here we use richer synthetic copy to exercise the viewer).
     root = next(s for s in sections if s.id == ROOT_SECTION_ID)
     root.header = (
         "We need a phased migration off CSV exports to a region-pinned warehouse."
@@ -230,23 +235,19 @@ def _build_state() -> MeetingState:
     )
 
 
-async def _redirect_root(_request: web.Request) -> web.Response:
-    raise web.HTTPFound(f"/{RUN_ID}/")
-
-
 async def main() -> None:
     state = _build_state()
     await register(state)
 
     app = build_app()
-    app.router.add_get("/", _redirect_root)
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    print(f"preview dev server listening on http://localhost:{PORT}/")
-    print(f"navigate to http://localhost:{PORT}/{RUN_ID}/")
+    print(f"meeting API listening on http://localhost:{PORT}/ (state seeded for run_id={RUN_ID})")
+    print("now run:  npm run dev -w meeting-frontend")
+    print(f"then open http://localhost:5173/{RUN_ID}/")
     # Keep the loop alive
     while True:
         await asyncio.sleep(3600)
@@ -254,5 +255,5 @@ async def main() -> None:
 
 if __name__ == "__main__":
     # Unused-import suppression for re-exports above
-    _ = webapp
+    _ = meeting
     asyncio.run(main())

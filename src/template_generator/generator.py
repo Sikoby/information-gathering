@@ -78,7 +78,10 @@ as the SPINE of the template:
   reason.
 
 Around the presentation phase, add framing phases the meeting needs:
-- An opening rapport / context-setting phase (target_fraction ~0.1).
+- A REQUIRED opening introduction phase (target_fraction ~0.1): the AI voice
+  agent introduces itself AS AN AI agent, confirms the participant is happy to
+  proceed (consent), and sets context before the walkthrough. Put the disclosure
+  + consent cue in body/private_notes.
 - A Q&A or discussion phase AFTER the walkthrough (target_fraction ~0.15-0.25)
   with 2-4 QUESTIONs the agent should pull from the participant (their reactions,
   concerns, decisions to make). Use the user's prompt to shape these.
@@ -143,8 +146,14 @@ Tree rules:
 
 Shape we want:
 - 3-5 scheduled top-level TOPICs (the agenda). target_fractions sum to ~1.0.
-  Most meetings start with a short rapport phase and end with a wrap phase
-  that confirms next steps.
+- The FIRST scheduled phase MUST be an introduction phase (target_fraction ~0.1).
+  The meeting is run by an AI voice agent, so this phase has to cover: the agent
+  introducing itself AS AN AI agent, confirming the participant is happy to go
+  ahead (consent), and briefly framing the meeting and previewing the agenda.
+  Encode this in the phase `body` (public, what the participant sees) and in
+  `private_notes` (delivery cues — e.g. "open by disclosing you're an AI voice
+  agent, then ask if they're happy to proceed before diving in"). Most meetings
+  also end with a wrap phase that confirms next steps.
 - Each phase owns 1-3 child TOPICs (inner topics).
 - Each inner TOPIC owns 2-3 child QUESTIONs.
 - Optionally, one example of deeper TOPIC nesting (TOPIC under TOPIC) for a
@@ -221,8 +230,13 @@ Judge the proposal against:
   that an answer would be substantive. Not duplicates of each other or of
   the parent topic header.
 - PHASES (scheduled top-level TOPICs): pacing makes sense for the meeting
-  type. Each has a real goal distinct from its neighbours. Most meetings
-  open with a short rapport phase and end with a wrap phase.
+  type. Each has a real goal distinct from its neighbours. The FIRST scheduled
+  phase MUST be a proper introduction: because the meeting is run by an AI voice
+  agent, the phase has to have the agent disclose it is an AI agent and secure
+  the participant's consent to proceed, plus frame the meeting/agenda (the
+  body and/or private_notes must make this explicit). A missing introduction
+  phase, or one that omits the AI disclosure or the consent ask, is a MAJOR
+  issue. Most meetings also end with a wrap phase.
 - COVERAGE: read the user's description carefully. Are there aspects it
   implies that the template fails to capture? Name them.
 - NAMING: ids are slash-separated snake_case paths; headers are human-readable

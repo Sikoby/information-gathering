@@ -22,7 +22,7 @@ Discovery interviews, requirements gatherings, walkthroughs, and structured Q&A 
 | **Reusable templates** | Each generated template is persistent and reusable. One template, many meetings. Editable shape, prompt, and target length. |
 | **Four built-in shapes** | `requirements`, `research`, `eval`, `generic` — selectable from the developer CLI or auto-picked from a markdown briefing. |
 | **Live viewer link** | Drop into the LiveKit room's chat panel when participants join. Anyone with the link can watch — same posture as a shared Google Doc. |
-| **Concurrent meetings** | The agent worker scales horizontally (`--scale agent=N`); LiveKit distributes job offers across replicas. Console and webapp are stateless. |
+| **Concurrent meetings** | The agent worker scales horizontally (`--scale agent=N`); LiveKit distributes job offers across replicas. Console and meeting tier are stateless. |
 
 ## Two entry points
 
@@ -36,11 +36,11 @@ Browser → console-frontend   |   scripts/dispatch.py --briefing X.md
        → agent worker        |   agent worker
 ```
 
-Both paths converge on the same dispatch → agent → webapp runtime.
+Both paths converge on the same dispatch → agent → meeting runtime.
 
 ## Architecture
 
-Seven containers, brokered by Redis. The agent has no direct connection to peripheral services — everything internal flows through Redis (state pub/sub + registry) or LiveKit Cloud (room dispatch).
+Eight containers, brokered by Redis. The agent has no direct connection to peripheral services — everything internal flows through Redis (state pub/sub + registry) or LiveKit Cloud (room dispatch).
 
 | Container | Role |
 |---|---|
@@ -48,7 +48,7 @@ Seven containers, brokered by Redis. The agent has no direct connection to perip
 | `template-generator` | OpenAI impl+critique loop that synthesises a `Template` from prompts or uploaded documents. |
 | `dispatch` | Creates the LiveKit room and dispatches the agent worker via `AgentDispatchService`. |
 | `agent` | LiveKit worker. One process per active meeting. Owns the live `MeetingState`. |
-| `webapp` | aiohttp + SSE live viewer. Reads snapshots from Redis. |
+| `meeting` + `meeting-frontend` | API + nginx SPA: live viewer (SSE from Redis) and PIN-gated join. Stateless. |
 | `redis` | State pub/sub, last-snapshot cache, AOF-persisted template + meeting registries. |
 
 ## Run it

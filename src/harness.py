@@ -8,9 +8,9 @@ from enum import Enum
 from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
-from . import webapp
+from . import meeting
 from .templates import (
     ROOT_SECTION_ID,
     Section,
@@ -73,6 +73,13 @@ class MeetingState(BaseModel):
     user_turn_count: int = 0
     end_reason: str | None = None
     ended_at: datetime | None = None
+
+    # Runtime-only handles, excluded from model_dump / Redis snapshots.
+    _note_queue: "asyncio.Queue | None" = PrivateAttr(default=None)
+    _agent: "Agent | None" = PrivateAttr(default=None)
+    # Id of the last conversation item present when the current section was
+    # entered — the boundary for the rolling one-section history window.
+    _section_start_item_id: str | None = PrivateAttr(default=None)
 
 
 def new_state_sections(template: Template) -> list[Section]:
@@ -158,19 +165,22 @@ Always speak English, regardless of the language the briefing below is written i
    question is in front of me, what is unanswered nearby, and what would top-down
    communication say next.
 3. Adapt. Do not run a fixed script. Probe when answers are vague.
-4. When you learn something material, call record_finding(section_id, header, body).
-   `section_id` should be the QUESTION you're answering; unknown ids fall back to
-   'other/q' automatically.
-5. When you change topics, call navigate(to_section_id). The tool tells you the move
-   kind (open / drill_down / zoom_out / sibling / revisit) and fills in tree-derived
-   material so you have concrete words to speak:
-     - DRILL_DOWN: announce count + children ("I have 3 questions about X, let's
-       start with the first one").
-     - ZOOM_OUT: summarise the level you're leaving before introducing the next.
-     - SIBLING: brief recap of the sibling you finished, then the new one.
-     - REVISIT: explain why you're coming back; remind them of prior captures.
-     - OPEN: state the agenda before announcing the first phase.
-   Speak in your own words — never silently change topic.
+4. When you learn something material, call record_finding(note) with a single short
+   natural-language sentence — just say what you learned. You do NOT pick a question id
+   and you do NOT split header/body; a background pass files it under the right question
+   and trims it to a terse note. It returns instantly, so keep talking — never wait for it.
+5. When you change topics, call navigate(to_section_id). Then, out loud, BRIDGE the move:
+   first (a) summarise the ground you just covered, then (b) outline what's coming next.
+   The tool returns tree-derived material (a branch recap, child count + first child, the
+   destination) — use it to make the bridge concrete. Shape the bridge by the move kind:
+     - DRILL_DOWN: name the topic, say how many sub-questions it holds, outline the first
+       ("There are 3 questions under X — let's start with the first…").
+     - ZOOM_OUT: summarise the branch you're leaving, then where that leaves us and what's
+       next ("Stepping back from X: we covered … — next we'll look at …").
+     - SIBLING: recap the sibling you just finished, then introduce the next one.
+     - REVISIT: say why you're coming back and recap what was captured before, then the step.
+   Never silently change topic — always bridge by recapping the ground covered and
+   previewing what's next, in your own words, using the material the tool returns.
 6. When briefing success conditions are met OR the time budget is hit OR the
    stakeholder signals end of meeting, call end_meeting(reason).
 7. If the stakeholder digresses, follow briefly, then steer back.
@@ -179,8 +189,11 @@ Always speak English, regardless of the language the briefing below is written i
    author for you only; use them to shape your tone, pacing, and approach.
 9. Communicate top-down. Lead every block with the bottom line, then 2–4 supports,
    then detail.
-10. Open with frame_meeting; speak BLUF + situation + complication + agenda aloud
-    in 2–3 sentences.
+10. You start already in the first phase — the introduction. Open by introducing
+    yourself as an AI voice agent running this meeting, ask the participant whether
+    they're happy to proceed (read their reply and continue — don't wait for a
+    formal yes), preview the agenda, then begin the introduction. Do NOT navigate
+    to open; you're already in the first phase.
 11. Toward the end of the time budget, call deliver_pyramid_summary and speak it
     pyramid-style.
 
@@ -212,19 +225,10 @@ def _truncate(text: str, limit: int = 160) -> str:
 
 
 def render_meeting(state: MeetingState) -> str:
-    root = section_by_id(state.sections, ROOT_SECTION_ID)
-    if root is None:
-        return "(no root section — something is very wrong)"
     agenda = " → ".join(s.header for s in scheduled_nodes(state.sections))
-    if root.header == "Meeting" and not root.body:
-        return f"(not yet framed — call frame_meeting)\nAgenda: {agenda}"
-    parts = [
-        f"BLUF: {root.header}",
-    ]
-    if root.body:
-        parts.append(root.body)
-    if root.private_notes:
-        parts.append(f"Speaker notes (private — do not read aloud): {root.private_notes}")
+    parts = [f"Meeting: {state.template.name}"]
+    if state.template.description:
+        parts.append(state.template.description)
     if agenda:
         parts.append(f"Agenda: {agenda}")
     return "\n\n".join(parts)
@@ -455,5 +459,5 @@ async def schedule_time_warning(agent: "Agent", state: MeetingState) -> None:
             "and begin wrapping up now."
         )
     await agent.update_instructions(body + warning)
-    await webapp.publish(state)
+    await meeting.publish(state)
     logger.info("time warning fired at {:.1f} min elapsed", elapsed)

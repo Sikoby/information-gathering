@@ -213,6 +213,16 @@ export function NewMeeting() {
                   Schedule for later
                 </h2>
 
+                <Alert variant="warning">
+                  <AlertTitle>Email delivery is a work in progress</AlertTitle>
+                  <AlertDescription>
+                    Scheduling works and the calendar invite (.ics) is
+                    generated, but automatic email delivery to attendees isn't
+                    live yet. You can still download the .ics and share the join
+                    link and PIN yourself.
+                  </AlertDescription>
+                </Alert>
+
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium">Date and time</h3>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -357,16 +367,16 @@ function ScheduledPanel({
             <CalendarPlus />
           </a>
         </IconButton>
-        {meeting.webapp_url && (
-          <CopyButton value={meeting.webapp_url} label="Copy live link" />
+        {meeting.live_view_url && (
+          <CopyButton value={meeting.live_view_url} label="Copy live link" />
         )}
       </div>
 
-      {meeting.webapp_url && (
+      {meeting.live_view_url && (
         <LinkField
           label="Live view"
           hint="Read-only. The voice-join link appears once the meeting starts."
-          url={meeting.webapp_url}
+          url={meeting.live_view_url}
         />
       )}
 
@@ -396,8 +406,8 @@ function StartedPanel({
       {meeting.join_url && (
         <LinkField label="Join link" hint="Send this to participants." url={meeting.join_url} />
       )}
-      {meeting.webapp_url && (
-        <LinkField label="Live view" hint="Read-only — watch the meeting unfold." url={meeting.webapp_url} />
+      {meeting.live_view_url && (
+        <LinkField label="Live view" hint="Read-only — watch the meeting unfold." url={meeting.live_view_url} />
       )}
 
       <ResultActions onGo={onGo} />

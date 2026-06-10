@@ -72,7 +72,7 @@ def main() -> None:
     print(payload["join_url"])
     print()
     print("Shared view (read-only):")
-    print(payload["webapp_url"])
+    print(payload["live_view_url"])
 
 
 if __name__ == "__main__":

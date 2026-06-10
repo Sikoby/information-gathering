@@ -1,0 +1,21 @@
+# Slim meeting API image: aiohttp + redis client. No livekit, no openai, no
+# pydantic — the meeting API deals only in opaque JSON. Static files and the SPA
+# are served by the separate meeting-frontend (nginx) container.
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir aiohttp redis loguru
+
+COPY src/__init__.py ./src/__init__.py
+COPY src/meeting/ ./src/meeting/
+
+ENV MEETING_PORT=8771
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8771
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python", "-m", "src.meeting"]

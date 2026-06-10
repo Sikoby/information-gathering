@@ -32,4 +32,4 @@ App-specific components, hooks, and types stay in the app, not here. Adding a ne
 
 ## Not a container
 
-`shared/` ships no container. It is copied into the `webapp` and `console-frontend` Docker build stages (both `npm ci` within the workspace) and compiled into each app's bundle.
+`shared/` ships no container. It is copied into the `meeting-frontend` and `console-frontend` Docker build stages (both `npm ci` within the workspace) and compiled into each app's bundle.

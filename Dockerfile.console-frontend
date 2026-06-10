@@ -6,7 +6,7 @@ WORKDIR /repo
 # Every workspace manifest is needed for `npm ci` to resolve the workspace.
 COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
-COPY frontend/package.json ./frontend/
+COPY meeting-frontend/package.json ./meeting-frontend/
 COPY console-frontend/package.json ./console-frontend/
 RUN npm ci
 COPY shared/ ./shared/

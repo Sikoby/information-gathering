@@ -32,17 +32,21 @@ from .briefing_plan import select_template
 from .harness import (
     MeetingState,
     build_instructions,
-    elapsed_minutes,
     new_state_sections,
     schedule_time_warning,
 )
-from . import webapp
+from . import meeting
+from .extraction import run_extractor
 from .persistence import Persistence
-from .templates import ROOT_SECTION_ID, Template
+from .templates import (
+    ROOT_SECTION_ID,
+    Template,
+    scheduled_nodes,
+    section_by_id,
+)
 from .tools import (
     deliver_pyramid_summary,
     end_meeting,
-    frame_meeting,
     navigate,
     note_followup,
     record_finding,
@@ -96,6 +100,19 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     briefing_path = persist.briefing_path
+    sections = new_state_sections(template)
+    # Start the cursor in the introduction phase (first scheduled top-level
+    # TOPIC), not at the synthetic _root. The agent's whole opening — AI self-
+    # intro, consent, agenda preview — now lives in that first phase, so there's
+    # no separate "frame the meeting then drill down into the intro" double-open.
+    first_phase = next(iter(scheduled_nodes(sections)), None)
+    start_id = first_phase.id if first_phase else ROOT_SECTION_ID
+    # Seed the MEETING overview card from the template (replaces what the removed
+    # frame_meeting tool used to populate for the live viewer).
+    root = section_by_id(sections, ROOT_SECTION_ID)
+    if root is not None:
+        root.header = template.name
+        root.body = template.description
     state = MeetingState(
         run_id=run_id,
         briefing_path=str(briefing_path),
@@ -103,31 +120,29 @@ async def entrypoint(ctx: JobContext) -> None:
         started_at=datetime.now(timezone.utc),
         briefing_markdown=briefing_body,
         template=template,
-        sections=new_state_sections(template),
-        current_section_id=ROOT_SECTION_ID,
+        sections=sections,
+        current_section_id=start_id,
+        visited_section_ids=[start_id] if start_id != ROOT_SECTION_ID else [],
     )
-    await webapp.register(state)
+    await meeting.register(state)
 
-    webapp_base = os.environ.get(
-        "WEBAPP_PUBLIC_URL",
-        f"http://localhost:{os.environ.get('WEBAPP_PORT', '8765')}",
-    )
-    webapp_url = f"{webapp_base}/{run_id}/"
+    meeting_base = os.environ.get("MEETING_PUBLIC_URL", "http://localhost:8765")
+    live_view_url = f"{meeting_base}/{run_id}/"
 
-    async def _post_webapp_url() -> None:
+    async def _post_live_view_url() -> None:
         try:
             await ctx.room.local_participant.send_text(
-                f"Live meeting view: {webapp_url}",
+                f"Live meeting view: {live_view_url}",
                 topic="lk.chat",
             )
-            logger.info("posted webapp url to chat: {}", webapp_url)
+            logger.info("posted live view url to chat: {}", live_view_url)
         except Exception as e:
-            logger.warning("failed to post webapp url to chat: {}", e)
+            logger.warning("failed to post live view url to chat: {}", e)
 
     @ctx.room.on("participant_connected")
     def _on_participant_connected(participant: rtc.RemoteParticipant) -> None:
         logger.info("participant joined: {}", participant.identity)
-        asyncio.create_task(_post_webapp_url())
+        asyncio.create_task(_post_live_view_url())
 
     realtime_model = oai_plugin.realtime.RealtimeModel(
         model="gpt-realtime",
@@ -170,20 +185,22 @@ async def entrypoint(ctx: JobContext) -> None:
         if ev.old_state != "speaking" or ev.new_state != "listening":
             return
         state.user_turn_count += 1
-        asyncio.create_task(webapp.publish(state))
-        if state.user_turn_count % 4 == 0:
-            new = build_instructions(state, elapsed_minutes(state))
-            asyncio.create_task(agent.update_instructions(new))
-            logger.info("instructions refreshed at user turn {}", state.user_turn_count)
+        asyncio.create_task(meeting.publish(state))
 
     async def _flush_on_shutdown() -> None:
         if state.end_reason is None:
             state.end_reason = "user_ended"
         if state.ended_at is None:
             state.ended_at = datetime.now(timezone.utc)
+        # Best-effort: let the extractor file any still-queued notes before we snapshot.
+        if state._note_queue is not None:
+            try:
+                await asyncio.wait_for(state._note_queue.join(), timeout=20.0)
+            except asyncio.TimeoutError:
+                logger.warning("extractor drain timed out; some notes may be unfiled")
         persist.flush_state(state)
-        await webapp.publish(state)
-        await webapp.unregister(state.run_id)
+        await meeting.publish(state)
+        await meeting.unregister(state.run_id)
         logger.info("flushed state to {}", persist.run_dir)
 
     ctx.add_shutdown_callback(_flush_on_shutdown)
@@ -194,14 +211,20 @@ async def entrypoint(ctx: JobContext) -> None:
         tools=[
             record_finding,
             navigate,
-            frame_meeting,
             deliver_pyramid_summary,
             note_followup,
             end_meeting,
         ],
     )
+    # Runtime handles for the tools: the Agent (navigate uses it to refresh instructions
+    # and window history) and the note queue (record_finding enqueues onto it).
+    state._agent = agent
+    state._note_queue = asyncio.Queue()
 
     await session.start(agent=agent, room=ctx.room)
+
+    # Single background worker drains the note queue, files findings via gpt-5-mini.
+    asyncio.create_task(run_extractor(state))
 
     # Wait for a human before greeting — a greeting to an empty room is never heard.
     await ctx.wait_for_participant()
@@ -210,9 +233,13 @@ async def entrypoint(ctx: JobContext) -> None:
     asyncio.create_task(schedule_time_warning(agent, state))
     await session.generate_reply(
         instructions=(
-            "Open the meeting now. First call frame_meeting(bluf, situation, "
-            "complication), then speak the BLUF + situation + complication + agenda "
-            "aloud in 2–3 sentences. Then call navigate() to the first phase."
+            "Open the meeting now. You're already in the first phase — the "
+            "introduction. Start by introducing yourself: say you're an AI voice "
+            "agent running this meeting and briefly what it's about, then ask the "
+            "participant whether they're happy to go ahead. Don't wait for a formal "
+            "yes — read their reply and continue naturally into the introduction. "
+            "Briefly preview the agenda, then begin. Do NOT call navigate — you "
+            "already start in the first phase."
         )
     )
 

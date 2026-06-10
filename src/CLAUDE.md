@@ -5,7 +5,7 @@
 ## Scope
 
 This directory holds the agent service's Python code, **except**:
-- [webapp/](webapp/) — webapp container, see [webapp/CLAUDE.md](webapp/CLAUDE.md)
+- [meeting/](meeting/) — meeting API container, see [meeting/CLAUDE.md](meeting/CLAUDE.md)
 - [dispatch_service/](dispatch_service/) — dispatch container, see [dispatch_service/CLAUDE.md](dispatch_service/CLAUDE.md)
 - [template_generator/](template_generator/) — template-generator container, see [template_generator/CLAUDE.md](template_generator/CLAUDE.md)
 - [console/](console/) — console API container, see [console/CLAUDE.md](console/CLAUDE.md)
@@ -17,15 +17,49 @@ The agent is a LiveKit worker. One process per active meeting. The agent process
 ```
 src/
   agent.py            entry point: parses dispatch metadata, starts AgentSession,
-                      wires event handlers, registers shutdown callback.
+                      wires event handlers, starts the note extractor, registers
+                      shutdown callback.
   harness.py          MeetingState (Pydantic), Transition, prompt builder, schedulers.
   briefing_plan.py    briefing → Template via front-matter or LLM template selection.
+  extraction.py       background finding extractor: drains the record_finding note queue,
+                      calls gpt-5-mini (off the event loop) to turn each raw one-line note
+                      into a structured, terse finding, inserts it into the tree.
   persistence.py      out/<run_id>/ file IO (tree.json, transitions.json, notebook.json, ...).
   tools.py            function_tools the agent calls: record_finding, navigate,
-                      frame_meeting, deliver_pyramid_summary, note_followup, end_meeting.
+                      deliver_pyramid_summary, note_followup, end_meeting.
   templates/          Section + SectionKind schema and four shipped meeting trees
                       (requirements, research, eval, generic).
 ```
+
+## record_finding is fire-and-forget; findings are filed in the background
+
+`record_finding` takes a **single free-text `note`** and returns instantly — it only drops a
+`RawNote` on an in-memory `asyncio.Queue` (held on `MeetingState._note_queue`, a `PrivateAttr`
+excluded from Redis snapshots). This keeps the realtime voice model from streaming long
+multi-field JSON (which truncated/malformed in practice) and from blocking the audio loop on a
+tool round trip. A **single background worker** (`extraction.run_extractor`, started in
+`agent.entrypoint` after `session.start`) drains the queue and calls **gpt-5-mini** via
+`asyncio.to_thread(client.responses.parse, text_format=ExtractedFinding)` to pick the right
+QUESTION id and write a **terse** header/body, then inserts the ANSWER and publishes. So
+**gpt-5-mini now runs in the live meeting loop**, not only at startup for template selection.
+On any API/parse error the worker files the raw note verbatim under `other/q` — findings are
+never lost. `_flush_on_shutdown` drains the queue (`queue.join()`, 20s cap) before the final
+state snapshot.
+
+## Instructions refresh on transition; history is windowed to the last section
+
+The system prompt is rebuilt **only when the agent navigates** between sections (in the
+`navigate` tool, via `MeetingState._agent.update_instructions`), not on a turn counter — the
+blocks that change (TREE POSITION, NAVIGATION OPTIONS) only move on a transition, and recent
+findings are already visible in the live conversation history. `schedule_time_warning` still
+does its own out-of-band refresh + wrap-up nudge at T-5.
+
+On each transition `navigate` also **windows the realtime conversation history to the last
+section**: it keeps every item from where the just-ended section began (marker
+`MeetingState._section_start_item_id`) and drops older sections via `update_chat_ctx`. Those
+older findings already live in the NOTEBOOK snapshot, so this shrinks live context without
+losing distilled content. The just-ended section's turns are retained, so a note spoken right
+before a move is never orphaned by the prune.
 
 ## What it depends on
 
@@ -54,8 +88,8 @@ The agent publishes audio only — its TTS output is sent to the room via LiveKi
 | `LIVEKIT_API_KEY` | yes | |
 | `LIVEKIT_API_SECRET` | yes | |
 | `OPENAI_API_KEY` | yes | gpt-realtime + gpt-5-mini. |
-| `REDIS_URL` | yes (default redis://localhost:6379/0) | message bus to the webapp. |
-| `WEBAPP_PUBLIC_URL` | optional (default `http://localhost:8765`) | URL the agent posts to the room chat. Override when tunneling. |
+| `REDIS_URL` | yes (default redis://localhost:6379/0) | message bus to the meeting API. |
+| `MEETING_PUBLIC_URL` | optional (default `http://localhost:8765`) | live-view base URL the agent posts to the room chat. Override when tunneling. |
 
 ## Shutdown behavior
 

@@ -57,7 +57,7 @@ cat <<EOF
 Done. Next:
   1. ssh $DEPLOY_USER@<vm-ip>
   2. cd /opt/ig/app && cp .env.example .env
-  3. Fill in .env (LIVEKIT_*, OPENAI_API_KEY, WEBAPP_PUBLIC_URL, TUNNEL_TOKEN, COMPOSE_FILE)
+  3. Fill in .env (LIVEKIT_*, OPENAI_API_KEY, MEETING_PUBLIC_URL, TUNNEL_TOKEN, COMPOSE_FILE)
   4. docker compose up -d --build
 
 See README.md "Production deploy" for the Cloudflare Tunnel + Access steps.

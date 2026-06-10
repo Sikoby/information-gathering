@@ -35,7 +35,7 @@ The compose service shares the agent's [Dockerfile.python](../../Dockerfile.pyth
 
 - `description` (required): the user's free-form meeting description.
 - `reference_template` (optional): a name from [`TEMPLATES`](../templates/__init__.py) — currently one of `requirements`, `research`, `eval`, `generic`. Unknown names return 400. The reference is rendered into the implementation system prompt as structural inspiration; it is **not** copied verbatim.
-- `document_outline` (optional): a `DocumentOutline` previously returned by `POST /extract`. When present, the propose and critique system prompts switch on **presentation mode**: the agent emits one TOPIC per slide (in order), copies `speaker_notes` verbatim into `private_notes`, and wraps the walkthrough in framing phases (rapport, Q&A, wrap). A slide may be split into a parent + 2-3 child TOPICs when it covers multiple aspects.
+- `document_outline` (optional): a `DocumentOutline` previously returned by `POST /extract`. When present, the propose and critique system prompts switch on **presentation mode**: the agent emits one TOPIC per slide (in order), copies `speaker_notes` verbatim into `private_notes`, and wraps the walkthrough in framing phases (introduction — AI self-disclosure + consent, Q&A, wrap). A slide may be split into a parent + 2-3 child TOPICs when it covers multiple aspects.
 - `max_iterations` (optional, default 3, max 8): hard cap on (propose, critique) cycles. The loop exits early when `critique.approved=true`.
 - `name_hint` (optional): suggests a snake_case template id; the implementation agent may override if it has a better idea.
 
@@ -118,7 +118,7 @@ Or use the CLI: `uv run python scripts/generate_template.py --description "..." 
 - Auto-registration into the agent's hardcoded `TEMPLATES` dict — it still holds only the four built-ins. Custom templates reach the agent inline via dispatch metadata (the console path), not this dict.
 - Browsing the on-disk `templates_generated/` store. The console keeps its own copy of a generated template in the `meeting:*` registry; nothing reads the disk artefacts back.
 - Caching — every request re-runs both LLM calls. Add prompt caching if costs become an issue.
-- Auth on the public endpoint. Same posture as dispatch / webapp today.
+- Auth on the public endpoint. Same posture as dispatch / meeting today.
 
 ## Scaling
 

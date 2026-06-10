@@ -24,8 +24,8 @@ from . import ics
 from .models import MeetingRecord
 
 
-def _webapp_base() -> str:
-    return os.environ.get("WEBAPP_PUBLIC_URL", "http://localhost:8765").rstrip("/")
+def _meeting_base() -> str:
+    return os.environ.get("MEETING_PUBLIC_URL", "http://localhost:8765").rstrip("/")
 
 
 def _smtp_config() -> dict | None:
@@ -43,8 +43,8 @@ def _smtp_config() -> dict | None:
 
 
 def _build_message(rec: MeetingRecord, *, summary: str, sender: str) -> EmailMessage:
-    join_url = f"{_webapp_base()}/join/{rec.meeting_id}"
-    live_view = rec.webapp_url or ""
+    join_url = f"{_meeting_base()}/join/{rec.meeting_id}"
+    live_view = rec.live_view_url or ""
 
     body = [
         f"You're invited to: {summary}",

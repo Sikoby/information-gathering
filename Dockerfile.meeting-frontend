@@ -1,0 +1,20 @@
+# Meeting participant SPA (live view + join) — built within the npm workspace,
+# served by nginx. nginx serves the static bundle and reverse-proxies /api to
+# the meeting backend.
+
+FROM node:20-slim AS builder
+WORKDIR /repo
+# Every workspace manifest is needed for `npm ci` to resolve the workspace.
+COPY package.json package-lock.json ./
+COPY shared/package.json ./shared/
+COPY meeting-frontend/package.json ./meeting-frontend/
+COPY console-frontend/package.json ./console-frontend/
+RUN npm ci
+COPY shared/ ./shared/
+COPY meeting-frontend/ ./meeting-frontend/
+RUN npm run build -w meeting-frontend
+
+FROM nginx:1.27-alpine AS runtime
+COPY meeting-frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /repo/meeting-frontend/dist /usr/share/nginx/html
+EXPOSE 80

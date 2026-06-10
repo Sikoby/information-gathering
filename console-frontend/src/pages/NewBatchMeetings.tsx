@@ -181,6 +181,16 @@ export function NewBatchMeetings() {
                   Schedule
                 </h2>
 
+                <Alert variant="warning">
+                  <AlertTitle>Email delivery is a work in progress</AlertTitle>
+                  <AlertDescription>
+                    Scheduling works and each interviewee's calendar invite
+                    (.ics) is generated, but automatic email delivery isn't live
+                    yet. You can still download each .ics and share the join link
+                    and PIN yourself.
+                  </AlertDescription>
+                </Alert>
+
                 <div className="space-y-2">
                   <h3 className="text-sm font-medium">Date and time</h3>
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -374,9 +384,9 @@ function MeetingResultRow({
                 <CalendarPlus />
               </a>
             </IconButton>
-            {meeting.webapp_url && (
+            {meeting.live_view_url && (
               <CopyButton
-                value={meeting.webapp_url}
+                value={meeting.live_view_url}
                 label="Copy live link"
                 className="h-8 w-8 [&_svg]:size-3.5"
               />
@@ -391,9 +401,9 @@ function MeetingResultRow({
                 className="h-8 w-8 [&_svg]:size-3.5"
               />
             )}
-            {meeting.webapp_url && (
+            {meeting.live_view_url && (
               <CopyButton
-                value={meeting.webapp_url}
+                value={meeting.live_view_url}
                 label="Copy live link"
                 className="h-8 w-8 [&_svg]:size-3.5"
               />

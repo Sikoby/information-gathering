@@ -22,7 +22,7 @@ services:
     env_file: .env
     environment:
       REDIS_URL: redis://redis:6379/0
-      WEBAPP_PUBLIC_URL: http://localhost:8765
+      MEETING_PUBLIC_URL: http://localhost:8765
     volumes:
       - ./out:/app/out
     depends_on:
@@ -31,18 +31,20 @@ services:
     networks: [internal]
     stop_grace_period: 30s
 
-  webapp:
+  # Participant-facing tier, split like the console: a JSON API (meeting) behind
+  # an nginx SPA host (meeting-frontend) that serves the bundle + proxies /api.
+  meeting:
     build:
       context: .
-      dockerfile: Dockerfile.webapp
+      dockerfile: Dockerfile.meeting
     restart: unless-stopped
     environment:
       REDIS_URL: redis://redis:6379/0
-      WEBAPP_PORT: 8765
-      # The public join page mints its voice-join token via dispatch (internal).
+      MEETING_PORT: 8771
+      # The join flow mints its voice-join token via dispatch (internal).
       DISPATCH_URL: http://dispatch:8766
     ports:
-      - "8765:8765"
+      - "8771:8771"
     depends_on:
       redis:
         condition: service_healthy
@@ -51,12 +53,23 @@ services:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8765/healthz').read()"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8771/healthz').read()"
       interval: 10s
       timeout: 3s
       retries: 3
     networks: [internal, public]
-    # Production seam: deploy.replicas: N with a load balancer in front.
+    # Stateless — safe to scale: deploy.replicas: N behind a load balancer.
+
+  meeting-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.meeting-frontend
+    restart: unless-stopped
+    ports:
+      - "8765:80"
+    depends_on:
+      - meeting
+    networks: [public]
 
   dispatch:
     build:
@@ -68,7 +81,7 @@ services:
     environment:
       DISPATCH_PORT: 8766
       REDIS_URL: redis://redis:6379/0
-      WEBAPP_PUBLIC_URL: http://localhost:8765
+      MEETING_PUBLIC_URL: http://localhost:8765
     ports:
       - "8766:8766"
     depends_on:
@@ -113,7 +126,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DISPATCH_URL: http://dispatch:8766
       TEMPLATE_GEN_URL: http://template-generator:8768
-      WEBAPP_PUBLIC_URL: http://localhost:8765
+      MEETING_PUBLIC_URL: http://localhost:8765
       # Local-dev fallback when Cloudflare Access isn't in front. Leave
       # unset in production so requests without Cf-Access-Authenticated-User-Email
       # are rejected with 401.

@@ -1,0 +1,32 @@
+# Local-dev overlay — auto-merged by `docker compose up` (no -f flags needed).
+#
+# The prod deploy passes explicit files
+# (`docker compose -f docker-compose.yml -f docker-compose.prod.yml up`), so this
+# override is IGNORED in production. It exists only to test the invite-email
+# feature locally without a real mail server.
+#
+# WIP: real outbound email delivery is not done yet. Mailpit is an open-source
+# SMTP sink — it ACCEPTS every message and shows it in a web inbox at
+# http://localhost:8025, but never delivers to a real address. This validates
+# the app-side send path (message build, .ics attachment, join link + PIN), not
+# deliverability.
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # web inbox UI (SMTP 1025 stays on the internal network)
+    networks: [internal]
+
+  # Repoint the console's SMTP at Mailpit. `environment` wins over `env_file`,
+  # so this overrides the real SMTP_* values in .env WITHOUT editing .env
+  # (Gmail creds stay put; delete this file to fall back to real SMTP).
+  console:
+    environment:
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025" # not 465/587 → invites.py sends plain, no TLS
+      SMTP_USERNAME: "" # empty user+pass → invites.py skips AUTH
+      SMTP_PASSWORD: ""
+    depends_on:
+      mailpit:
+        condition: service_started

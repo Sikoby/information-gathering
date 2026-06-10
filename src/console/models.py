@@ -84,7 +84,7 @@ class MeetingRecord(BaseModel):
     run_id: str | None = None
     room: str | None = None
     join_url: str | None = None
-    webapp_url: str | None = None
+    live_view_url: str | None = None
 
     created_at: str
     updated_at: str

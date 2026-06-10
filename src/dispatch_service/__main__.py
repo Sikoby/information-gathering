@@ -8,8 +8,8 @@ worker. The briefing is always passed inline as a raw markdown string
 
 `POST /join-token` is a lighter sibling: given an existing `room`, it mints a
 fresh voice-join URL (unique guest identity) without creating a room or
-dispatching an agent. The webapp join page calls it once it has gated an
-invitee on meeting status + PIN.
+dispatching an agent. The `meeting` API's join flow calls it once it has gated
+an invitee on meeting status + PIN.
 """
 
 from __future__ import annotations
@@ -127,13 +127,13 @@ async def _dispatch(
     finally:
         await api.aclose()
 
-    webapp_base = os.environ.get("WEBAPP_PUBLIC_URL", "http://localhost:8765")
+    meeting_base = os.environ.get("MEETING_PUBLIC_URL", "http://localhost:8765")
     return {
         "run_id": run_id,
         "room": room_name,
         "target_minutes": target_minutes,
         "join_url": join_url,
-        "webapp_url": f"{webapp_base}/{run_id}/",
+        "live_view_url": f"{meeting_base}/{run_id}/",
     }
 
 
@@ -189,7 +189,7 @@ async def _post_dispatch(request: web.Request) -> web.Response:
 async def _post_join_token(request: web.Request) -> web.Response:
     """Mint a fresh voice-join URL for an already-running meeting's room.
 
-    Called by the webapp join page (server-to-server, internal network) once it
+    Called by the `meeting` API's join flow (server-to-server, internal network) once it
     has gated on meeting status + PIN. Creates no room and dispatches no agent —
     it only issues a token, under a unique guest identity so concurrent
     invitees never collide.

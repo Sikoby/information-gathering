@@ -14,9 +14,10 @@ from typing import Any
 import pytest
 
 from src import tools as tools_mod
-from src import webapp as webapp_mod
+from src import meeting as meeting_mod
+from src.extraction import insert_finding
 from src.harness import MeetingState, TransitionKind, new_state_sections
-from src.templates import TEMPLATES, ROOT_SECTION_ID, SectionKind, section_by_id
+from src.templates import TEMPLATES, ROOT_SECTION_ID, SectionKind
 from src.templates.schema import CLOSING_SECTION_ID, OTHER_QUESTION_ID
 
 
@@ -43,7 +44,7 @@ def _stub_publish(monkeypatch):
     async def noop(_state: MeetingState) -> None:
         return None
 
-    monkeypatch.setattr(webapp_mod, "publish", noop)
+    monkeypatch.setattr(meeting_mod, "publish", noop)
 
 
 @pytest.fixture
@@ -65,52 +66,48 @@ def _call(tool: Any, ctx: _FakeCtx, **kwargs):
     return asyncio.run(tool.__wrapped__(ctx, **kwargs))
 
 
-def test_frame_meeting_writes_header_and_body(state):
+def test_record_finding_enqueues_raw_note_without_mutating_tree(state):
+    state._note_queue = asyncio.Queue()
     ctx = _FakeCtx(userdata=state)
-    out = _call(
-        tools_mod.frame_meeting,
-        ctx,
-        bluf="We need a phased data-warehouse migration.",
-        situation="Reports are slow.",
-        complication="Costs are climbing.",
-    )
-    root = section_by_id(state.sections, ROOT_SECTION_ID)
-    assert root is not None
-    assert root.header == "We need a phased data-warehouse migration."
-    assert "Situation: Reports are slow." in (root.body or "")
-    assert "Complication: Costs are climbing." in (root.body or "")
-    assert "Agenda" in out
+    state.current_section_id = "pain_points/q1"
+    out = _call(tools_mod.record_finding, ctx, note="Daily report builds take 4h.")
+    assert out == "noted"
+    assert state._note_queue.qsize() == 1
+    raw = state._note_queue.get_nowait()
+    assert raw.note == "Daily report builds take 4h."
+    assert raw.section_id == "pain_points/q1"
+    # The voice path does NOT touch the tree — the extractor does that later.
+    assert not [s for s in state.sections if s.kind == SectionKind.ANSWER]
 
 
-def test_record_finding_creates_answer_under_named_question(state):
+def test_record_finding_acks_even_without_queue(state):
+    # Defensive: no queue wired (shouldn't happen in a real run) → ack, never raise.
     ctx = _FakeCtx(userdata=state)
-    out = _call(
-        tools_mod.record_finding,
-        ctx,
-        section_id="pain_points/q1",
-        header="Slow report",
-        body="Daily report builds take 4h.",
+    out = _call(tools_mod.record_finding, ctx, note="anything")
+    assert out == "noted"
+
+
+# ---- extraction.insert_finding (placement logic, exercised by the background worker) ----
+
+
+def test_insert_finding_creates_answer_under_named_question(state):
+    sec = insert_finding(
+        state, "pain_points/q1", "Slow report", "Daily report builds take 4h."
     )
+    assert sec.parent_id == "pain_points/q1"
+    assert sec.kind == SectionKind.ANSWER
+    assert sec.header == "Slow report"
+    assert sec.body == "Daily report builds take 4h."
+    assert sec.ts is not None
     answers = [
         s for s in state.sections
         if s.parent_id == "pain_points/q1" and s.kind == SectionKind.ANSWER
     ]
     assert len(answers) == 1
-    assert answers[0].header == "Slow report"
-    assert answers[0].body == "Daily report builds take 4h."
-    assert answers[0].ts is not None
-    assert "pain_points" not in out or "answer" in out.lower()
 
 
-def test_record_finding_falls_back_to_other_q_on_unknown(state):
-    ctx = _FakeCtx(userdata=state)
-    _call(
-        tools_mod.record_finding,
-        ctx,
-        section_id="not_a_real_id",
-        header="Stray finding",
-        body="Where did this go?",
-    )
+def test_insert_finding_falls_back_to_other_q_on_unknown(state):
+    insert_finding(state, "not_a_real_id", "Stray finding", "Where did this go?")
     answers = [
         s for s in state.sections
         if s.parent_id == OTHER_QUESTION_ID and s.kind == SectionKind.ANSWER
@@ -118,16 +115,9 @@ def test_record_finding_falls_back_to_other_q_on_unknown(state):
     assert len(answers) == 1
 
 
-def test_record_finding_falls_back_to_other_q_on_non_question(state):
-    ctx = _FakeCtx(userdata=state)
+def test_insert_finding_falls_back_to_other_q_on_non_question(state):
     # pain_points is a TOPIC, not a QUESTION
-    _call(
-        tools_mod.record_finding,
-        ctx,
-        section_id="pain_points",
-        header="Misrouted",
-        body="Topic-targeted finding.",
-    )
+    insert_finding(state, "pain_points", "Misrouted", "Topic-targeted finding.")
     answers = [
         s for s in state.sections
         if s.parent_id == OTHER_QUESTION_ID and s.kind == SectionKind.ANSWER
