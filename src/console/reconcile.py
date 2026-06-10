@@ -144,7 +144,7 @@ async def _reconcile_scheduled(
         run_id=result["run_id"],
         room=result.get("room"),
         join_url=result.get("join_url"),
-        webapp_url=result.get("webapp_url"),
+        live_view_url=result.get("live_view_url"),
         dispatched_at=now.isoformat(),
     )
     logger.info(

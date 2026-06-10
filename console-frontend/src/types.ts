@@ -67,7 +67,7 @@ export type MeetingRecord = {
   run_id: string | null;
   room: string | null;
   join_url: string | null;
-  webapp_url: string | null;
+  live_view_url: string | null;
   created_at: string;
   updated_at: string;
   dispatched_at: string | null;

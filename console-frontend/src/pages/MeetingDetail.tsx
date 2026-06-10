@@ -129,15 +129,15 @@ function MeetingView({
             <CopyButton value={meeting.join_url} label="Copy join link" />
           </>
         )}
-        {!scheduled && meeting.webapp_url && (
+        {!scheduled && meeting.live_view_url && (
           <IconButton variant="outline" asChild label="Open live view">
-            <a href={meeting.webapp_url} target="_blank" rel="noreferrer">
+            <a href={meeting.live_view_url} target="_blank" rel="noreferrer">
               <ExternalLink />
             </a>
           </IconButton>
         )}
-        {meeting.webapp_url && (
-          <CopyButton value={meeting.webapp_url} label="Copy live link" />
+        {meeting.live_view_url && (
+          <CopyButton value={meeting.live_view_url} label="Copy live link" />
         )}
         {onDelete && (
           <IconButton

@@ -1,7 +1,7 @@
-"""Per-meeting read-only webapp.
+"""Per-meeting participant app — backend package.
 
-This module is the agent's view of the webapp service. The webapp runs in its
-own container (`python -m src.webapp`); the agent only writes state via the
+This module is the agent's view of the meeting service. The meeting API runs in
+its own container (`python -m src.meeting`); the agent only writes state via the
 functions re-exported here.
 
 Public surface used by agent.py and tools.py:

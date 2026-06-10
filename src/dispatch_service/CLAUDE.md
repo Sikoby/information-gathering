@@ -22,8 +22,8 @@ src/dispatch_service/
 
 | Route | Behavior |
 | --- | --- |
-| `POST /dispatch` | Body `{briefing_description, target_minutes, custom_template?, run_id?}`. Creates the room + token, calls `AgentDispatchService.create_dispatch`, returns `{run_id, room, target_minutes, join_url, webapp_url}`. |
-| `POST /join-token` | Body `{room, name?}`. Mints a fresh voice-join URL for an **existing** `room` under a **unique guest identity** (`guest-<hex>`) — no room creation, no agent dispatch. Returns `{join_url}`. Internal-only (no public ingress); called by the webapp join page after it gates on meeting status + PIN. |
+| `POST /dispatch` | Body `{briefing_description, target_minutes, custom_template?, run_id?}`. Creates the room + token, calls `AgentDispatchService.create_dispatch`, returns `{run_id, room, target_minutes, join_url, live_view_url}`. |
+| `POST /join-token` | Body `{room, name?}`. Mints a fresh voice-join URL for an **existing** `room` under a **unique guest identity** (`guest-<hex>`) — no room creation, no agent dispatch. Returns `{join_url}`. Internal-only (no public ingress); called by the `meeting` API's join flow after it gates on meeting status + PIN. |
 | `GET /runs` | Returns `{active: [run_id...]}` from Redis `SMEMBERS runs:active`. Best-effort; returns 503 if Redis is unreachable. |
 | `GET /healthz` | 200 if `LIVEKIT_URL/KEY/SECRET` are present; 503 otherwise. |
 
@@ -46,7 +46,7 @@ src/dispatch_service/
 python -m src.dispatch_service
 ```
 
-Reads `DISPATCH_PORT` (default 8766), `LIVEKIT_*`, `REDIS_URL`, `WEBAPP_PUBLIC_URL` from env.
+Reads `DISPATCH_PORT` (default 8766), `LIVEKIT_*`, `REDIS_URL`, `MEETING_PUBLIC_URL` from env.
 
 ## Env vars
 
@@ -55,7 +55,7 @@ Reads `DISPATCH_PORT` (default 8766), `LIVEKIT_*`, `REDIS_URL`, `WEBAPP_PUBLIC_U
 | `LIVEKIT_URL` | yes | Used to build the meet.livekit.io join URL and to call the LiveKit API. |
 | `LIVEKIT_API_KEY` | yes | |
 | `LIVEKIT_API_SECRET` | yes | |
-| `WEBAPP_PUBLIC_URL` | optional (default `http://localhost:8765`) | Used to build the webapp URL returned to the caller. Override when tunneling. |
+| `MEETING_PUBLIC_URL` | optional (default `http://localhost:8765`) | Used to build the `live_view_url` returned to the caller. Override when tunneling. |
 | `REDIS_URL` | optional (default `redis://localhost:6379/0`) | Only needed for `GET /runs`. |
 | `DISPATCH_PORT` | optional (default 8766) | aiohttp listen port. |
 
@@ -74,4 +74,4 @@ Or use the CLI: `uv run python scripts/dispatch.py --briefing briefings/01_dwh_r
 
 ## Scaling
 
-Stateless — any replica can serve any request. Production seam is identical to webapp: bump `deploy.replicas` and put a load balancer in front.
+Stateless — any replica can serve any request. Production seam is identical to the meeting API: bump `deploy.replicas` and put a load balancer in front.

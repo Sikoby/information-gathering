@@ -40,8 +40,8 @@ from .models import (
 )
 
 
-def _webapp_public_url() -> str:
-    return os.environ.get("WEBAPP_PUBLIC_URL", "http://localhost:8765").rstrip("/")
+def _meeting_public_url() -> str:
+    return os.environ.get("MEETING_PUBLIC_URL", "http://localhost:8765").rstrip("/")
 
 
 def _parse_iso(value: str) -> datetime:
@@ -72,7 +72,7 @@ def _meeting_summary(rec: MeetingRecord, tmpl: TemplateRecord | None) -> str:
 
 def _join_url(meeting_id: str) -> str:
     """The stable, permanent join link mailed in the invite."""
-    return f"{_webapp_public_url()}/join/{meeting_id}"
+    return f"{_meeting_public_url()}/join/{meeting_id}"
 
 
 def _new_join_pin() -> str:
@@ -438,7 +438,7 @@ async def post_template_start_meeting(request: web.Request) -> web.Response:
         run_id=result["run_id"],
         room=result.get("room"),
         join_url=result.get("join_url"),
-        webapp_url=result.get("webapp_url"),
+        live_view_url=result.get("live_view_url"),
         created_at=now,
         updated_at=now,
         dispatched_at=now,
@@ -459,7 +459,7 @@ async def post_template_schedule_meeting(request: web.Request) -> web.Response:
 
     Unlike start-now, this does NOT dispatch. The reconcile loop dispatches
     it when `scheduled_at` arrives. The record is given a deterministic
-    `webapp_url` immediately so the invite has a stable link before dispatch
+    `live_view_url` immediately so the invite has a stable link before dispatch
     mints the real voice-join URL.
     """
     template_id = request.match_info["template_id"]
@@ -497,7 +497,7 @@ async def post_template_schedule_meeting(request: web.Request) -> web.Response:
         scheduled_at=payload.scheduled_at,
         invitees=payload.invitees,
         join_pin=_new_join_pin() if payload.invitees else None,
-        webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
+        live_view_url=f"{_meeting_public_url()}/{meeting_id}/",
         created_at=now,
         updated_at=now,
     )
@@ -587,7 +587,7 @@ async def post_template_start_batch(request: web.Request) -> web.Response:
             run_id=result["run_id"],
             room=result.get("room"),
             join_url=result.get("join_url"),
-            webapp_url=result.get("webapp_url"),
+            live_view_url=result.get("live_view_url"),
             created_at=now,
             updated_at=now,
             dispatched_at=now,
@@ -609,7 +609,7 @@ async def post_template_schedule_batch(request: web.Request) -> web.Response:
     """Schedule N future meetings from one template — one per interviewee.
 
     Like single-schedule: no dispatch (the reconcile loop starts each when
-    `scheduled_at` arrives), a deterministic `webapp_url` so the invite has a
+    `scheduled_at` arrives), a deterministic `live_view_url` so the invite has a
     stable link, and a per-meeting `.ics` whose SUMMARY is the interviewee name
     and whose single ATTENDEE is their email.
     """
@@ -649,7 +649,7 @@ async def post_template_schedule_batch(request: web.Request) -> web.Response:
             scheduled_at=payload.scheduled_at,
             invitees=[person.email],
             join_pin=_new_join_pin(),
-            webapp_url=f"{_webapp_public_url()}/{meeting_id}/",
+            live_view_url=f"{_meeting_public_url()}/{meeting_id}/",
             created_at=now,
             updated_at=now,
         )

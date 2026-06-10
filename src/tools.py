@@ -7,25 +7,27 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from livekit.agents import RunContext, function_tool
+from livekit.agents.llm import ChatContext
 from loguru import logger
 
-from . import webapp
+from . import meeting
+from .extraction import RawNote
 from .harness import (
     Followup,
     MeetingState,
     Transition,
     TransitionKind,
+    build_instructions,
     compute_transition_kind,
+    elapsed_minutes,
     enumerate_children,
     summarize_branch,
 )
 from .templates import (
     CLOSING_SECTION_ID,
-    OTHER_QUESTION_ID,
     ROOT_SECTION_ID,
     Section,
     SectionKind,
-    children_of,
     enclosing_phase,
     scheduled_nodes,
     section_by_id,
@@ -40,79 +42,30 @@ def _agenda(state: MeetingState) -> str:
 
 
 @function_tool
-async def record_finding(
-    ctx: RunContext[MeetingState],
-    section_id: str,
-    header: str,
-    body: str,
-) -> str:
-    """Record a material learning under a QUESTION in the notebook tree.
+async def record_finding(ctx: RunContext[MeetingState], note: str) -> str:
+    """Capture something you just learned, in one short natural-language sentence.
 
-    `section_id` MUST be the id of a QUESTION node (these are the lines starting
-    with `Q (...)` in the NOTEBOOK block of your instructions). If unknown or
-    not a question, the finding is routed to the fallback question
-    ('other/q'). `header` is a short noun phrase (a few words). `body` is one
-    to three sentences of substance.
+    Just say what you learned in plain words — you do NOT pick a question id and you
+    do NOT split header from body. A background pass files the note under the right
+    question and trims it to a terse entry. Returns immediately, so keep talking;
+    never wait for the finding to appear.
     """
     state = ctx.userdata
-    parent = section_by_id(state.sections, section_id)
-    if parent is None or parent.kind != SectionKind.QUESTION:
-        logger.warning(
-            "record_finding: section_id {!r} is not a QUESTION; routing to {!r}",
-            section_id,
-            OTHER_QUESTION_ID,
-        )
-        section_id = OTHER_QUESTION_ID
-        parent = section_by_id(state.sections, section_id)
-    assert parent is not None  # auto-appended by the Template validator
-
-    # Pick the next free integer suffix for the answer id.
-    existing_answers = [
-        s for s in children_of(state.sections, parent.id) if s.kind == SectionKind.ANSWER
-    ]
-    n = len(existing_answers) + 1
-    while any(s.id == f"{parent.id}/a{n}" for s in existing_answers):
-        n += 1
-    answer_id = f"{parent.id}/a{n}"
-
-    state.sections.append(
-        Section(
-            id=answer_id,
-            parent_id=parent.id,
-            kind=SectionKind.ANSWER,
-            header=header,
-            body=body,
-            ts=datetime.now(timezone.utc),
+    queue = state._note_queue
+    if queue is None:
+        # Extractor not wired (should not happen in a normal run). Don't block the
+        # voice loop or lose the note silently — log it and ack.
+        logger.error("record_finding: no note queue on state; note dropped: {!r}", note)
+        return "noted"
+    queue.put_nowait(
+        RawNote(
+            note=note,
+            section_id=state.current_section_id,
+            user_turn=state.user_turn_count,
         )
     )
-    logger.info(
-        "finding recorded under {}: {} | {}", parent.id, header, body
-    )
-
-    n_after = len(existing_answers) + 1
-    # Sibling QUESTIONs still at zero answers (helpful nudge).
-    if parent.parent_id is not None:
-        sibling_qs_unanswered: list[str] = []
-        for sibling in children_of(state.sections, parent.parent_id):
-            if sibling.id == parent.id or sibling.kind != SectionKind.QUESTION:
-                continue
-            if not any(
-                c.kind == SectionKind.ANSWER for c in children_of(state.sections, sibling.id)
-            ):
-                sibling_qs_unanswered.append(sibling.id)
-    else:
-        sibling_qs_unanswered = []
-
-    hint = ""
-    if sibling_qs_unanswered:
-        hint = (
-            f" Sibling questions still at zero answers: "
-            f"{', '.join(sibling_qs_unanswered)}."
-        )
-    await webapp.publish(state)
-    return (
-        f"Recorded under '{parent.header}'. {n_after} answer(s) there now.{hint}"
-    )
+    logger.info("note queued under {}: {}", state.current_section_id, note)
+    return "noted"
 
 
 # ---- navigate ----
@@ -129,8 +82,10 @@ async def navigate(
     """Change which section the conversation is in.
 
     Pass the id of any TOPIC or QUESTION in the tree. The tool computes the move
-    kind (open/drill_down/zoom_out/sibling/revisit) and returns the words you
-    should speak to make the move feel intentional and top-down.
+    kind (open/drill_down/zoom_out/sibling/revisit) and returns bridge material —
+    a recap of the ground just covered plus a pointer to what's next. Use it to
+    bridge the move out loud (summarise what's done, then outline what's next);
+    it's raw material to speak in your own words, not a script to read verbatim.
 
     `recap` is a one-line summary you'd offer when leaving a branch (used on
     SIBLING and ZOOM_OUT). `bridge` is a one-line reason you're returning to
@@ -192,8 +147,47 @@ async def navigate(
         state, kind, from_id, target, crossed, recap, bridge
     )
 
-    await webapp.publish(state)
-    return f"[{kind.value}] {speech}"
+    await meeting.publish(state)
+    await _refresh_on_transition(ctx, state)
+
+    return (
+        "Bridge out loud — recap what's done, then outline what's next:\n"
+        f"{speech}\n"
+        f"[move: {kind.value}]"
+    )
+
+
+async def _refresh_on_transition(
+    ctx: RunContext[MeetingState], state: MeetingState
+) -> None:
+    """D1 + D2: a transition is the one moment the live context needs to change.
+
+    D1 — rebuild instructions now (TREE POSITION / NAVIGATION OPTIONS only move here).
+    D2 — window conversation history to the section that just ended: keep everything
+    from where it began, drop older sections (their findings already live in the
+    NOTEBOOK snapshot). The just-ended section's turns stay, so a note spoken right
+    before this move is never orphaned by the prune. Refresh before prune so the
+    rebuilt snapshot is authoritative for the content we're dropping.
+    """
+    agent = state._agent
+    if agent is None:
+        return
+
+    await agent.update_instructions(build_instructions(state, elapsed_minutes(state)))
+
+    hist = ctx.session.history
+    items = hist.items
+    if not items:
+        return
+    marker = state._section_start_item_id
+    if marker is not None:
+        idx = hist.index_by_id(marker)
+        if idx is not None and idx > 0:
+            await agent.update_chat_ctx(ChatContext(items=items[idx:]))
+            logger.info(
+                "history windowed: dropped {} item(s) before the last section", idx
+            )
+    state._section_start_item_id = items[-1].id
 
 
 def _speech_for_transition(
@@ -255,39 +249,6 @@ def _speech_for_transition(
     return f"Now on {to.header}."
 
 
-# ---- frame_meeting ----
-
-
-@function_tool
-async def frame_meeting(
-    ctx: RunContext[MeetingState],
-    bluf: str,
-    situation: str,
-    complication: str,
-) -> str:
-    """Frame the meeting top-down before starting (Minto BLUF + SCQA).
-
-    `bluf` is the one-sentence bottom line — what you want this meeting to land.
-    `situation` is the shared background (one or two sentences). `complication`
-    is what changed or what's at stake that makes the meeting needed
-    (one sentence). Idempotent — calling again replaces the framing.
-    """
-    state = ctx.userdata
-    root = section_by_id(state.sections, ROOT_SECTION_ID)
-    if root is None:
-        return "no root section — cannot frame"
-    root.header = bluf
-    root.body = f"Situation: {situation}\n\nComplication: {complication}"
-    logger.info("meeting framed: {}", bluf)
-    agenda = _agenda(state) or "(no scheduled phases)"
-    await webapp.publish(state)
-    return (
-        f"Meeting framed. BLUF set. Agenda is: {agenda}. "
-        "Now speak the BLUF, situation, complication, and agenda aloud in 2–3 sentences, "
-        "then call navigate() to the first phase."
-    )
-
-
 # ---- deliver_pyramid_summary ----
 
 
@@ -333,7 +294,7 @@ async def deliver_pyramid_summary(
         )
     )
     logger.info("pyramid summary delivered: {}", top_conclusion)
-    await webapp.publish(state)
+    await meeting.publish(state)
     return (
         f"Closing prepared: '{top_conclusion}'. "
         "Now speak it pyramid-style: top conclusion first, then 2–4 supports, then actions."
@@ -357,7 +318,7 @@ async def note_followup(
     """
     ctx.userdata.followups.append(Followup(item=item, kind=kind))
     logger.info("followup noted [{}]: {}", kind, item)
-    await webapp.publish(ctx.userdata)
+    await meeting.publish(ctx.userdata)
     return f"noted ({kind})"
 
 
@@ -389,5 +350,5 @@ async def end_meeting(
 
     asyncio.create_task(_close_after_goodbye())
     logger.info("end_meeting called: {}", reason)
-    await webapp.publish(ctx.userdata)
+    await meeting.publish(ctx.userdata)
     return f"ending: {reason}. Say a one-sentence goodbye now."

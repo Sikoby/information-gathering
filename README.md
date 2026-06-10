@@ -1,8 +1,8 @@
 # Briefing-driven voice meeting agent
 
-A Python prototype that joins a LiveKit room as a senior consultant, runs a meeting based on a free-form prompt or markdown briefing, and writes a transcript plus structured findings to disk. A live read-only webapp shows what the agent has captured so far. A separate **meeting console** lets a non-developer create a meeting from a prompt — generate and edit its template, start it, and track its lifecycle.
+A Python prototype that joins a LiveKit room as a senior consultant, runs a meeting based on a free-form prompt or markdown briefing, and writes a transcript plus structured findings to disk. A live read-only meeting viewer shows what the agent has captured so far. A separate **meeting console** lets a non-developer create a meeting from a prompt — generate and edit its template, start it, and track its lifecycle.
 
-The system runs as seven containers — agent, webapp, dispatch, template-generator, console, console-frontend, redis — brokered by a Redis pub/sub spine. See [CLAUDE.md](CLAUDE.md) for the architecture overview.
+The system runs as eight containers — agent, meeting, meeting-frontend, dispatch, template-generator, console, console-frontend, redis — brokered by a Redis pub/sub spine. See [CLAUDE.md](CLAUDE.md) for the architecture overview.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ Fill in `.env`:
 | `LIVEKIT_API_KEY` | LiveKit Cloud API key |
 | `LIVEKIT_API_SECRET` | LiveKit Cloud API secret |
 | `OPENAI_API_KEY` | platform.openai.com |
-| `WEBAPP_PUBLIC_URL` | optional — the URL the agent posts to the room chat (default `http://localhost:8765`). Override when tunneling. |
+| `MEETING_PUBLIC_URL` | optional — the URL the agent posts to the room chat (default `http://localhost:8765`). Override when tunneling. |
 
 ## Run a meeting (console — recommended)
 
@@ -45,6 +45,10 @@ Open the **meeting console** at [http://localhost:8769](http://localhost:8769). 
 
 Ports: console SPA `8769`, console API `8770`, live viewer `8765`, dispatch `8766`, template-generator `8768`.
 
+### Testing invite email locally (delivery is WIP)
+
+Real outbound email **delivery isn't done yet**, so scheduling a meeting with invitees won't reach a real inbox. To test the invite path end-to-end, the repo ships a dev-only `docker-compose.override.yml` that `docker compose up` auto-merges (it's excluded from the prod deploy, which names its compose files explicitly). It runs **Mailpit** — an open-source SMTP sink — and points the console's SMTP at it. Schedule a meeting with an invitee, then open the Mailpit inbox at [http://localhost:8025](http://localhost:8025) to inspect the captured email: subject, body, the `invite.ics` attachment, the join link, and the PIN. This validates the message-build/send path, not deliverability; delete the override to fall back to the real SMTP relay configured in `.env`.
+
 ## Run a meeting (developer CLI)
 
 For quick iteration against a pre-written markdown briefing — no template generation, no console record:
@@ -56,7 +60,7 @@ uv run python scripts/dispatch.py --briefing briefings/01_dwh_requirements.md --
 
 The dispatch CLI POSTs to the dispatch container at `http://localhost:8766/dispatch` and prints a `https://meet.livekit.io/custom?...` URL and a `http://localhost:8765/<run_id>/` URL. The rest of the meeting flow is identical to the console path; only the entry point differs.
 
-Logs from any service: `docker compose logs -f agent` (or `webapp`, `dispatch`, `template-generator`, `console`, `console-frontend`, `redis`).
+Logs from any service: `docker compose logs -f agent` (or `meeting`, `meeting-frontend`, `dispatch`, `template-generator`, `console`, `console-frontend`, `redis`).
 
 ## Swap briefings (CLI path)
 
@@ -94,7 +98,7 @@ The agent runs on **two inputs**: a free-form description of *this meeting* (a "
 A **briefing/prompt** describes *this specific meeting* — its purpose, the topics to cover, any time-budget or tone hints. It's what changes between meetings.
 
 - The **console** takes the prompt directly from the UI form.
-- The **CLI** reads it from a markdown file in `briefings/`. A briefing typically opens with `# Briefing: <Title>` — that title is what the webapp shows as the meeting title.
+- The **CLI** reads it from a markdown file in `briefings/`. A briefing typically opens with `# Briefing: <Title>` — that title is what the meeting viewer shows as the meeting title.
 
 A **template** is a reusable, structured meeting *shape*. It is one tree of `Section` nodes discriminated by `kind`:
 
@@ -158,7 +162,8 @@ Seven containers, brokered by Redis:
 | `template-generator` | aiohttp service on `:8768` exposing `POST /generate`. Runs an OpenAI impl+critique loop that proposes a `Template`, critiques it, revises, and returns the approved result (and a copy in `templates_generated/`). |
 | `dispatch` | aiohttp service on `:8766` exposing `POST /dispatch`. Creates the LiveKit room, mints the stakeholder access token, and calls `AgentDispatchService.CreateDispatch` with JSON metadata `{briefing_description, run_id, target_minutes, custom_template?}`. |
 | `agent` | LiveKit worker. Long-running; registers with LiveKit as `briefing-agent` and waits for job offers. On each job: reads metadata; if no `custom_template` is supplied, runs `src/briefing_plan.py` (one offline `openai.responses.parse` call) to pick one of the four built-in templates; builds a `MeetingState` over a deep-copied Section tree; runs the meeting on `gpt-realtime` with voice `cedar`; writes `out/<run_id>/` at shutdown. |
-| `webapp` | aiohttp + SSE on `:8765`. Reads `state:<run_id>` from Redis on `GET /<run_id>/state`; subscribes to `events:<run_id>` for `GET /<run_id>/events`. Stateless live viewer. |
+| `meeting` | aiohttp + SSE JSON API on `:8771`. Reads `state:<run_id>` from Redis on `GET /api/runs/<run_id>/state`; subscribes to `events:<run_id>` for `GET /api/runs/<run_id>/events`; serves the public join flow under `/api/join/*`. Stateless. |
+| `meeting-frontend` | nginx on `:8765`. Serves the participant SPA (live viewer + PIN-gated join); reverse-proxies `/api` to `meeting`. |
 | `redis` | Message bus and registry. Holds `state:<run_id>` (24h TTL), broadcasts on `events:<run_id>`, persists the `meeting:*` registry via AOF on a named volume. |
 
 Data flow for a console-created meeting:
@@ -167,15 +172,15 @@ Data flow for a console-created meeting:
 2. The generation task calls template-generator `POST /generate`. The result is written back into the meeting record under a `generation_seq` guard so a concurrent edit is never clobbered. The record moves to `template_status: ready`.
 3. The user clicks **Start**. The console `POST /dispatch` (with `meeting_id` reused as `run_id`) to the dispatch container; dispatch calls LiveKit Cloud and returns the join URLs.
 4. LiveKit Cloud pushes the job offer to one of the agent worker replicas over its WebSocket.
-5. The agent invokes `entrypoint(ctx)`, parses metadata, builds `MeetingState` over a deep-copied Section tree, and calls `await webapp.register(state)` — that writes the initial snapshot to Redis.
+5. The agent invokes `entrypoint(ctx)`, parses metadata, builds `MeetingState` over a deep-copied Section tree, and calls `await meeting.register(state)` — that writes the initial snapshot to Redis.
 6. The agent runs the meeting on `gpt-realtime`. `MeetingState` is attached to `AgentSession.userdata`, so every `function_tool` in `src/tools.py` receives it via `RunContext[MeetingState].userdata`. `input_audio_transcription` (`gpt-4o-mini-transcribe`) feeds the LiveKit `conversation_item_added` event handler that appends to `transcript.jsonl`.
 7. Every four user turns, the system prompt is refreshed via `agent.update_instructions(...)` so the current tree position, navigation options, and notebook stay in front of the model. Five minutes before the target end, a scheduled task injects a wrap-up nudge toward `deliver_pyramid_summary`.
-8. After every state mutation (turn count, ANSWER appended, navigation, framing, followup), the agent calls `await webapp.publish(state)` — that writes `state:<run_id>` and publishes on `events:<run_id>`. Any browser connected to the live viewer via SSE receives the new snapshot.
+8. After every state mutation (turn count, ANSWER appended, navigation, framing, followup), the agent calls `await meeting.publish(state)` — that writes `state:<run_id>` and publishes on `events:<run_id>`. Any browser connected to the live viewer via SSE receives the new snapshot.
 9. On any close path (`end_meeting` tool, user leaves, error), `JobContext.add_shutdown_callback` flushes the full state to `out/<run_id>/` and removes the run from `runs:active`. The console's reconcile loop notices `end_reason` on the next tick and moves the meeting record to `done`.
 
 The CLI path skips steps 1–2: `scripts/dispatch.py` reads a briefing file from disk and calls `POST /dispatch` directly. The console is bypassed entirely.
 
-The agent has **no direct connection** to the webapp, console, dispatch, or template-generator — everything internal goes through Redis (state pub/sub + registry) or LiveKit Cloud (room dispatch). See [CLAUDE.md](CLAUDE.md) for the diagram.
+The agent has **no direct connection** to the meeting API, console, dispatch, or template-generator — everything internal goes through Redis (state pub/sub + registry) or LiveKit Cloud (room dispatch). See [CLAUDE.md](CLAUDE.md) for the diagram.
 
 ## Project layout
 
@@ -190,27 +195,28 @@ src/
                           deliver_pyramid_summary, note_followup, end_meeting
   templates/              built-in meeting shapes (requirements, research, eval, generic)
                           and the Section/SectionKind schema
-  webapp/                 aiohttp + Redis-backed SSE server (webapp container)
+  meeting/                aiohttp + Redis-backed JSON/SSE API (meeting container)
   dispatch_service/       aiohttp service that creates rooms + dispatches agents (dispatch container)
   template_generator/     aiohttp service running the impl+critique template loop (template-generator container)
   console/                aiohttp meeting-console API + lifecycle (console container)
 tests/                    pytest suite over the schema, transitions, and tools
-frontend/                 React + Vite read-only live viewer (built into webapp image)
+meeting-frontend/         React + Vite participant SPA — live viewer + join (built into meeting-frontend image)
 console-frontend/         React + Vite meeting-console SPA (built into console-frontend image)
 shared/                   @ig/ui — shared component library + Section tree helpers
 scripts/
   dispatch.py             thin CLI that POSTs to the dispatch container
   generate_template.py    thin CLI that POSTs to the template-generator container
-  preview_dev_server.py   serves the live viewer with synthetic state, for UI iteration
+  preview_dev_server.py   runs the meeting API with synthetic state (run Vite separately), for UI iteration
 templates_generated/      host volume — every generated template is archived here
 out/                      host volume — per-run artifacts (one directory per meeting)
 Dockerfile.python         agent + dispatch + template-generator image (multi-stage uv install)
-Dockerfile.webapp         slim live-viewer image (multi-stage npm build + Python runtime)
+Dockerfile.meeting        slim meeting API image (Python, no livekit/openai)
+Dockerfile.meeting-frontend  nginx image serving the participant SPA + proxying /api
 Dockerfile.console        slim console API image (Python, no livekit/openai)
 Dockerfile.console-frontend  nginx image serving the console SPA + proxying /api
-docker-compose.yml        seven services: agent, webapp, dispatch, template-generator,
-                          console, console-frontend, redis
-package.json              npm workspace root (shared, frontend, console-frontend)
+docker-compose.yml        eight services: agent, meeting, meeting-frontend, dispatch,
+                          template-generator, console, console-frontend, redis
+package.json              npm workspace root (shared, meeting-frontend, console-frontend)
 CLAUDE.md                 system overview; each container directory has its own CLAUDE.md
 ```
 
@@ -225,12 +231,12 @@ browser ─ TLS ─▶ Cloudflare edge ──(Access policy on console.*)──�
                                                             cloudflared (on VM)
                                                               │ docker network
                                                               ├─▶ console-frontend → console
-                                                              └─▶ webapp
+                                                              └─▶ meeting-frontend → meeting
 ```
 
 Auth sits on `console.example.com` only. Anyone with a link can open `meeting.example.com` to watch a meeting they're a participant in — same posture as a Google Docs share link. The cost-risk surface (creating meetings, spending OpenAI + LiveKit budget) is on the console, and that's walled off.
 
-The overlay [docker-compose.prod.yml](docker-compose.prod.yml) closes all host port mappings (only SSH stays open) and adds a `cloudflared` service that reaches `console-frontend:80` and `webapp:8765` over the internal docker network.
+The overlay [docker-compose.prod.yml](docker-compose.prod.yml) closes all host port mappings (only SSH stays open) and adds a `cloudflared` service that reaches `console-frontend:80` and `meeting-frontend:80` over the internal docker network.
 
 ### What you need
 
@@ -274,7 +280,7 @@ cp .env.example .env
 Edit `.env`. Set the existing keys (`LIVEKIT_*`, `OPENAI_API_KEY`) and add three production-only ones:
 
 ```
-WEBAPP_PUBLIC_URL=https://meeting.example.com
+MEETING_PUBLIC_URL=https://meeting.example.com
 TUNNEL_TOKEN=              # filled in Step 4
 COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
 ```
@@ -292,7 +298,7 @@ Click **Next → Public Hostnames** and add two:
 | Subdomain | Domain | Service | URL |
 | --- | --- | --- | --- |
 | `console` | `example.com` | HTTP | `console-frontend:80` |
-| `meeting` | `example.com` | HTTP | `webapp:8765` |
+| `meeting` | `example.com` | HTTP | `meeting-frontend:80` |
 
 Save. DNS records are created automatically.
 
@@ -395,8 +401,8 @@ Cloudflare Access protects the meeting console, but a compromised operator accou
 - The Silero VAD model is downloaded on first session inside the agent container. To pre-download: `docker compose run --rm agent python -m src.agent download-files`.
 - Voices supported by `gpt-realtime`: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar. Change the `voice=` kwarg in [src/agent.py](src/agent.py) if you prefer another.
 - The agent only accepts explicit dispatches (`agent_name="briefing-agent"`). The worker will not auto-join arbitrary rooms.
-- Webapp port: `WEBAPP_PORT=8765` by default. If you tunnel the live viewer (ngrok, Tailscale, etc.) set `WEBAPP_PUBLIC_URL=https://<your-host>` so both the dispatch response and the in-room chat message use the reachable URL.
+- Meeting-frontend port: `8765` by default (the nginx participant tier; the `meeting` API listens on `8771`). If you tunnel the live viewer (ngrok, Tailscale, etc.) set `MEETING_PUBLIC_URL=https://<your-host>` so both the dispatch response and the in-room chat message use the reachable URL.
 - Scale concurrent meetings: `docker compose up -d --scale agent=N`. Each agent replica registers with LiveKit as `briefing-agent`; LiveKit distributes job offers across them.
-- Scale the live viewer for high-fanout meetings: bump `webapp` replicas (production seam — needs a reverse proxy in front).
+- Scale the live viewer for high-fanout meetings: bump `meeting` replicas (production seam — needs a reverse proxy in front).
 - The console is stateless and horizontally scalable too: `docker compose up -d --scale console=N`. Atomic Redis Lua merges on every record update; the reconcile loop runs under a short-TTL leader lock so only one replica works per tick.
 - No authentication. The console can create and start meetings (spending OpenAI + LiveKit budget) with no auth — same posture as the other public endpoints. Add a reverse proxy with auth before exposing this beyond a trusted network.

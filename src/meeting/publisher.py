@@ -1,6 +1,6 @@
-"""Redis-backed state pub/sub for the per-meeting webapp.
+"""Redis-backed state pub/sub for the per-meeting API.
 
-The agent process writes `MeetingState` snapshots; the webapp process reads
+The agent process writes `MeetingState` snapshots; the meeting API process reads
 them. They never share Python objects — Redis is the only thing they share.
 
 Public surface
@@ -10,14 +10,14 @@ Agent-side writers (need MeetingState):
     register(state)       — first publish + mark run active
     unregister(run_id)    — mark run inactive
 
-Webapp-side readers (no MeetingState import needed):
+API-side readers (no MeetingState import needed):
     get_state_json(run_id)  — latest snapshot, or None if unknown
     get_client()            — shared async Redis client
     events_channel(run_id)  — channel name for pub/sub
     state_key(run_id)       — key name for the snapshot
     ping()                  — connectivity check for /healthz
 
-`MeetingState` is referenced only via TYPE_CHECKING so the webapp container
+`MeetingState` is referenced only via TYPE_CHECKING so the meeting API container
 can import this module without pulling pydantic/livekit/openai transitively.
 """
 
@@ -118,8 +118,8 @@ async def get_state_json(run_id: str) -> str | None:
 async def get_meeting_json(meeting_id: str) -> dict | None:
     """Return the console-owned `meeting:<id>` record as a dict, or None.
 
-    The console is the writer/owner of `meeting:*`; the webapp reads it (only)
-    to drive the public join page — analogous to the console reading the
+    The console is the writer/owner of `meeting:*`; the meeting API reads it
+    (only) to drive the public join flow — analogous to the console reading the
     agent-owned `state:*`. Only plain scalar fields are consumed (status, room,
     join_pin, scheduled_at, title_override), so the embedded-JSON `invitees`
     string is left untouched.

@@ -10,7 +10,7 @@ A meeting is born `running` (start-now) or `scheduled` (a future start). A sched
 
 It serves a JSON API only — no HTML. The console SPA is a separate [`console-frontend`](../../console-frontend/) nginx container that reverse-proxies `/api` here.
 
-The console **never imports agent code** (`harness`, `briefing_plan`, `tools`, livekit, openai). It reads `state:<run_id>` as opaque JSON, exactly like the webapp. `src/templates` is imported only for the `Template` Pydantic schema (used to validate edited templates).
+The console **never imports agent code** (`harness`, `briefing_plan`, `tools`, livekit, openai). It reads `state:<run_id>` as opaque JSON, exactly like the meeting API. `src/templates` is imported only for the `Template` Pydantic schema (used to validate edited templates).
 
 ## Stateless and horizontally scalable
 
@@ -58,9 +58,9 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `POST /api/templates/{id}/regenerate` | `404` on owner mismatch. Bumps `generation_seq`, resets `template_status` to `generating`, re-runs generation (the stored `document_outline` is passed through, so document-driven regenerations don't need re-upload). `202`. |
 | `DELETE /api/templates/{id}` | `204` if no meetings reference it; otherwise `409` with `{total_count, running_count}`. `404` on owner mismatch. The referencing-meetings check looks at the caller's meetings only. |
 | `POST /api/templates/{id}/meetings` | Body `MeetingStartFromTemplate` (`title_override?`, `target_minutes?`). `404` on owner mismatch. Stamps the new meeting with the caller's `owner_email`. `424` if template is not `ready`; `502` if dispatch fails. `201` with the new meeting on success. Meetings run concurrently — there is no per-user limit. |
-| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch. Creates a `status="scheduled"` record with a deterministic `webapp_url` (so the invite has a stable link before dispatch) and, when there are invitees, a generated `join_pin`, then emails the invite via `invites.send_invites` (best-effort; stamps `invite_sent_at` on success). `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
+| `POST /api/templates/{id}/scheduled-meetings` | Body `MeetingScheduleFromTemplate` (`scheduled_at` required, `title_override?`, `target_minutes?`, `invitees?`). Schedules a future meeting. `404` on owner mismatch; `424` if template is not `ready`; `400` if `scheduled_at` is not in the future. Does **not** dispatch. Creates a `status="scheduled"` record with a deterministic `live_view_url` (so the invite has a stable link before dispatch) and, when there are invitees, a generated `join_pin`, then emails the invite via `invites.send_invites` (best-effort; stamps `invite_sent_at` on success). `201`. The reconcile loop dispatches it when `scheduled_at` arrives. |
 | `POST /api/templates/{id}/batch-meetings` | Body `BatchStartFromTemplate` (`target_minutes?`, `title_prefix?`, `interviewees` — each `{name?, email}`, ≥1, no cap). `404` on owner mismatch; `424` if template is not `ready`. **Best-effort**: dispatches + creates one `status="running"` meeting per interviewee (name → `title_override`, email → its single invitee), collecting per-row failures. `201` with `{meetings: [...], errors: [...]}` — an all-failed batch still returns `201` with empty `meetings`. |
-| `POST /api/templates/{id}/scheduled-batch-meetings` | Body `BatchScheduleFromTemplate` (the above + `scheduled_at`). `404` on owner mismatch; `424` if not `ready`; `400` if `scheduled_at` is not in the future. Creates one `status="scheduled"` meeting per interviewee (deterministic `webapp_url`, a generated `join_pin`, an `invites.send_invites` each); no dispatch. `201` with `{meetings: [...]}`. The reconcile loop dispatches each when its `scheduled_at` arrives. |
+| `POST /api/templates/{id}/scheduled-batch-meetings` | Body `BatchScheduleFromTemplate` (the above + `scheduled_at`). `404` on owner mismatch; `424` if not `ready`; `400` if `scheduled_at` is not in the future. Creates one `status="scheduled"` meeting per interviewee (deterministic `live_view_url`, a generated `join_pin`, an `invites.send_invites` each); no dispatch. `201` with `{meetings: [...]}`. The reconcile loop dispatches each when its `scheduled_at` arrives. |
 
 **Meetings** — instances + audit log:
 
@@ -88,7 +88,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `template:<template_id>` | string (JSON) | the `TemplateRecord` — carries `owner_email`. `template` (the body) and `document_outline` are stored as embedded JSON *strings* so the Lua merge never round-trips their nested arrays through cjson (which would collapse empty arrays to `{}`). The record also carries `document_filename` + `document_kind` (`pptx`\|`pdf`) when the template was created via `/upload`. |
 | `templates:index` | sorted set | member=`template_id`, score=created epoch. **Global** — backs the reconcile loop's stale-generation sweep. |
 | `templates:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/templates`. Written alongside the global index on create, removed on delete. |
-| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord` — carries `owner_email` plus `status` (`scheduled`\|`running`\|`done`), `title_override?`, `target_minutes`, LiveKit run info, and lifecycle timestamps. A `scheduled` meeting also carries `scheduled_at`, `invitees`, `invite_sent_at?`, and `join_pin?` (the passcode for the public join page; plain scalar, not embedded). `invitees` is stored as an embedded JSON *string* (like the template's nested fields) so the Lua merge never round-trips the list through cjson — which would collapse an empty list to `{}` and corrupt the record. The **webapp** reads this key (read-only) to drive the join page. No template body lives here. |
+| `meeting:<meeting_id>` | string (JSON) | the `MeetingRecord` — carries `owner_email` plus `status` (`scheduled`\|`running`\|`done`), `title_override?`, `target_minutes`, LiveKit run info, and lifecycle timestamps. A `scheduled` meeting also carries `scheduled_at`, `invitees`, `invite_sent_at?`, and `join_pin?` (the passcode for the public join page; plain scalar, not embedded). `invitees` is stored as an embedded JSON *string* (like the template's nested fields) so the Lua merge never round-trips the list through cjson — which would collapse an empty list to `{}` and corrupt the record. The **meeting** API reads this key (read-only) to drive the join page. No template body lives here. |
 | `meetings:index` | sorted set | member=`meeting_id`, score=created epoch. **Global** — backs the reconcile loop's running-meeting sweep. |
 | `meetings:owner:<email>` | sorted set | same shape; **per-user** — backs `GET /api/meetings`. |
 | `console:reconcile:leader` | string | short-TTL leader lock for the reconcile loop. |
@@ -107,7 +107,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `REDIS_URL` | yes (default `redis://localhost:6379/0`) | registry + reading `state:*`. |
 | `DISPATCH_URL` | optional (default `http://dispatch:8766`) | start a meeting. |
 | `TEMPLATE_GEN_URL` | optional (default `http://template-generator:8768`) | generation. |
-| `WEBAPP_PUBLIC_URL` | optional (default `http://localhost:8765`) | base of the meeting's public live-view page. Used to stamp a **deterministic** `webapp_url` (`<base>/<meeting_id>/`) on a scheduled meeting so its `.ics` has a stable link before dispatch. For start-now meetings, dispatch builds the same URL. |
+| `MEETING_PUBLIC_URL` | optional (default `http://localhost:8765`) | base of the meeting's public live-view page. Used to stamp a **deterministic** `live_view_url` (`<base>/<meeting_id>/`) on a scheduled meeting so its `.ics` has a stable link before dispatch. For start-now meetings, dispatch builds the same URL. |
 | `CONSOLE_PORT` | optional (default 8770) | aiohttp listen port. |
 | `CONSOLE_DEV_USER_EMAIL` | optional (unset → 401) | Local-dev identity fallback when `Cf-Access-Authenticated-User-Email` is absent. Compose default is `dev@local`; left empty in `docker-compose.prod.yml`. |
 | `CONSOLE_CF_TEAM_DOMAIN` | optional (unset → `logout_url` is `null`) | Cloudflare Zero Trust team name (`myteam`) or full host (`myteam.cloudflareaccess.com`); backs the `GET /api/me` `logout_url`. Set it in `.env` (the console loads it via `env_file`). |
@@ -148,7 +148,7 @@ curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
 # bob's list (empty until bob creates one) and GET /api/templates/<alice-id>
 # returns 404.
 
-# Schedule a future meeting (note the deterministic webapp_url in the reply):
+# Schedule a future meeting (note the deterministic live_view_url in the reply):
 curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
      -X POST http://localhost:8770/api/templates/<id>/scheduled-meetings \
      -H 'Content-Type: application/json' \

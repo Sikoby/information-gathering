@@ -92,14 +92,14 @@ def build_event(
     stable permanent join link and `pin` the passcode required there; both are
     surfaced in the DESCRIPTION so the calendar entry — the thing people click at
     meeting time — carries everything needed to get in. The event URL still
-    points at the read-only live-view page (`rec.webapp_url`). The short-lived
+    points at the read-only live-view page (`rec.live_view_url`). The short-lived
     voice-join token itself is minted only when the invitee opens the join link.
     """
     start = _parse_iso_utc(rec.scheduled_at or "")
     end = start + timedelta(minutes=rec.target_minutes)
     now = datetime.now(timezone.utc)
 
-    live_view = rec.webapp_url or ""
+    live_view = rec.live_view_url or ""
     parts = ["AI-run meeting."]
     if join_url:
         parts.append(f"Join: {join_url}")

@@ -6,15 +6,18 @@
 services:
   agent:
     environment:
-      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set (e.g. https://meeting.example.com)}
+      MEETING_PUBLIC_URL: ${MEETING_PUBLIC_URL:?MEETING_PUBLIC_URL must be set (e.g. https://meeting.example.com)}
 
-  webapp:
+  meeting:
+    ports: !reset []
+
+  meeting-frontend:
     ports: !reset []
 
   dispatch:
     ports: !reset []
     environment:
-      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
+      MEETING_PUBLIC_URL: ${MEETING_PUBLIC_URL:?MEETING_PUBLIC_URL must be set}
 
   template-generator:
     ports: !reset []
@@ -22,7 +25,7 @@ services:
   console:
     ports: !reset []
     environment:
-      WEBAPP_PUBLIC_URL: ${WEBAPP_PUBLIC_URL:?WEBAPP_PUBLIC_URL must be set}
+      MEETING_PUBLIC_URL: ${MEETING_PUBLIC_URL:?MEETING_PUBLIC_URL must be set}
       # Cloudflare Access supplies the identity in prod — no dev fallback.
       CONSOLE_DEV_USER_EMAIL: ""
       # CONSOLE_CF_TEAM_DOMAIN (Sign out logout URL) is read from .env via the
@@ -37,5 +40,5 @@ services:
     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?TUNNEL_TOKEN must be set in .env (from Cloudflare Zero Trust > Networks > Tunnels)}
     depends_on:
       - console-frontend
-      - webapp
+      - meeting-frontend
     networks: [public]
