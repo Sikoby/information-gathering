@@ -30,6 +30,20 @@ services:
         condition: service_healthy
     networks: [internal]
     stop_grace_period: 30s
+    develop:
+      watch:
+        # Source edits sync into the image, then the process is restarted
+        # (python -m has no auto-reload). A dep change rebuilds the image.
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+          ignore: ["**/__pycache__/"]
+        - action: sync+restart
+          path: ./scripts
+          target: /app/scripts
+          ignore: ["**/__pycache__/"]
+        - action: rebuild
+          path: ./pyproject.toml
 
   # Participant-facing tier, split like the console: a JSON API (meeting) behind
   # an nginx SPA host (meeting-frontend) that serves the bundle + proxies /api.
@@ -59,6 +73,16 @@ services:
       retries: 3
     networks: [internal, public]
     # Stateless — safe to scale: deploy.replicas: N behind a load balancer.
+    develop:
+      watch:
+        # This image copies only src/__init__.py + src/meeting/.
+        - action: sync+restart
+          path: ./src/meeting
+          target: /app/src/meeting
+          ignore: ["**/__pycache__/"]
+        - action: sync+restart
+          path: ./src/__init__.py
+          target: /app/src/__init__.py
 
   meeting-frontend:
     build:
@@ -70,6 +94,15 @@ services:
     depends_on:
       - meeting
     networks: [public]
+    develop:
+      watch:
+        # Static bundle — no live sync; a rebuild reruns npm build + nginx copy.
+        - action: rebuild
+          path: ./meeting-frontend
+          ignore: ["**/node_modules/", "**/dist/"]
+        - action: rebuild
+          path: ./shared
+          ignore: ["**/node_modules/", "**/dist/"]
 
   dispatch:
     build:
@@ -88,6 +121,18 @@ services:
       redis:
         condition: service_healthy
     networks: [internal, public]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+          ignore: ["**/__pycache__/"]
+        - action: sync+restart
+          path: ./scripts
+          target: /app/scripts
+          ignore: ["**/__pycache__/"]
+        - action: rebuild
+          path: ./pyproject.toml
 
   template-generator:
     build:
@@ -113,6 +158,14 @@ services:
       timeout: 5s
       retries: 3
     networks: [public]
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./src
+          target: /app/src
+          ignore: ["**/__pycache__/"]
+        - action: rebuild
+          path: ./pyproject.toml
 
   console:
     build:
@@ -147,6 +200,20 @@ services:
       retries: 3
     networks: [internal, public]
     # Stateless — safe to scale: deploy.replicas: N behind a load balancer.
+    develop:
+      watch:
+        # This image copies only src/__init__.py + src/console/ + src/templates/.
+        - action: sync+restart
+          path: ./src/console
+          target: /app/src/console
+          ignore: ["**/__pycache__/"]
+        - action: sync+restart
+          path: ./src/templates
+          target: /app/src/templates
+          ignore: ["**/__pycache__/"]
+        - action: sync+restart
+          path: ./src/__init__.py
+          target: /app/src/__init__.py
 
   console-frontend:
     build:
@@ -158,6 +225,15 @@ services:
     depends_on:
       - console
     networks: [public]
+    develop:
+      watch:
+        # Static bundle — no live sync; a rebuild reruns npm build + nginx copy.
+        - action: rebuild
+          path: ./console-frontend
+          ignore: ["**/node_modules/", "**/dist/"]
+        - action: rebuild
+          path: ./shared
+          ignore: ["**/node_modules/", "**/dist/"]
 
 networks:
   internal: {}
