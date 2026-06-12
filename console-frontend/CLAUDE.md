@@ -28,6 +28,7 @@ console-frontend/
       useTemplate.ts        one template, polls 3s only while generating
       useMeetings.ts        dashboard meeting list, polls every 5s
       useMeeting.ts         one meeting, polls 3s only while running
+      useMeetingResults.ts  flushed artifacts of a done meeting, fetched once (no polling)
     pages/
       Dashboard.tsx         two stacked sections: Templates (top) + Meetings (a MeetingsCalendar month-view band, then the Scheduled/Running/Done columns); each section heading carries a concept InfoTooltip + a New … button (Meetings also has a `Users` batch-create button)
       Welcome.tsx             one-screen onboarding shown on first visit per tab
@@ -35,7 +36,7 @@ console-frontend/
       NewMeeting.tsx        the single meeting-creation surface: template picker + Start now / Schedule (time + invitees → .ics)
       NewBatchMeetings.tsx  batch creation: same picker + the single page's Schedule layout (calendar + time), but a repeatable interviewee (name + email) list → N parallel scheduled meetings (schedule-only — no Start now)
       TemplateDetail.tsx    generating spinner / failed / editor + "Start" (routes to /meetings/new?template=<id>); Prompt/Template headings carry concept InfoTooltips
-      MeetingDetail.tsx     slim scheduled/live/done view with "open source template" link + copy-link / add-to-calendar buttons
+      MeetingDetail.tsx     slim scheduled/live/done view with "open source template" link + copy-link / add-to-calendar buttons; a done meeting additionally shows the MeetingResults panels (agenda tree with answers + transcript, from GET /api/meetings/:id/results) and a "Download answers (.xlsx)" button (shown only when results loaded with sections)
     components/
       Page.tsx              Page (max-w-6xl px-6 py-8 outer container) + PageHeader (back-link + title + badge + info) + BackLink + CenteredMessage (loading/error box)
       IconButton.tsx        the icon-only Button wrapper every button uses — required `label` → aria-label + title tooltip; sizes "default" (h-9 w-9) / "sm" (h-8 w-8, smaller glyph)
@@ -43,6 +44,7 @@ console-frontend/
       Field.tsx             labelled form field: label + optional info tooltip + control + optional hint
       LinkField.tsx         read-only URL Input + Copy + Open-in-new-tab, built on Field
       InviteesList.tsx      the <ul> of invitee emails (renders nothing when the list is empty)
+      MeetingResults.tsx    read-only done-meeting panels: Results (TemplateEditor-style tree, starts fully expanded, answers under their question, empty catch-all hidden) + Transcript (scrollable role/time/text list); per-panel empty states when the agent never flushed
       TemplateCard.tsx, MeetingCard.tsx, StatusBadge.tsx, CopyButton.tsx, TemplateStatusIndicator.tsx
         StatusBadge → meeting status pills (running/done). TemplateStatusIndicator → one icon-in-a-circle: every template status (green check = ready, spinning amber loader = generating, red X = failed) plus the scheduled-meeting variant (muted CalendarClock). Scheduled meetings render the indicator instead of a StatusBadge pill (MeetingCard, MeetingsCalendar, MeetingDetail)
       MeetingsCalendar.tsx  dashboard Meetings widget: shared @ig/ui Calendar (month grid, dot on days with ≥1 meeting) beside a selected-day agenda that groups same-time meetings under one time label; positions each meeting by scheduled_at / dispatched_at / ended_at per status; rows link to /meetings/:id. Shows overlapping meetings at the same slot.
@@ -118,6 +120,7 @@ One icon per action, used the same way everywhere:
 | Delete | `Trash2` | Kind = Question | `CircleHelp` |
 | Copy | `Copy` → `Check` when copied | Add to calendar | `CalendarPlus` |
 | Open / live view | `ExternalLink` | Join (voice) | `Video` |
+| Download answers | `Download` | | |
 | Busy / in-flight | `Loader2` (`animate-spin`) | | |
 
 When two buttons share an icon (the two Copy buttons, the `Plus` on both dashboard cards), the `label`/tooltip disambiguates them. A busy action swaps its icon for a spinning `Loader2` and updates its `label` ("Saving…", "Starting…").

@@ -1,24 +1,37 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { CalendarPlus, ExternalLink, Trash2, Video } from "lucide-react";
+import {
+  CalendarPlus,
+  Download,
+  ExternalLink,
+  Trash2,
+  Video,
+} from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@ig/ui";
 import { useMeeting } from "@/hooks/useMeeting";
+import { useMeetingResults } from "@/hooks/useMeetingResults";
 import { useTemplate } from "@/hooks/useTemplate";
-import { deleteMeeting, meetingInviteIcsUrl } from "@/lib/api";
+import {
+  deleteMeeting,
+  meetingAnswersXlsxUrl,
+  meetingInviteIcsUrl,
+} from "@/lib/api";
 import { CopyButton } from "@/components/CopyButton";
+import { MeetingResultsPanels } from "@/components/MeetingResults";
 import { StatusBadge } from "@/components/StatusBadge";
 import { TemplateStatusIndicator } from "@/components/TemplateStatusIndicator";
 import { InviteesList } from "@/components/InviteesList";
 import { Page, PageHeader, CenteredMessage } from "@/components/Page";
 import { IconButton } from "@/components/IconButton";
 import { formatDateTime } from "@/lib/format";
-import type { MeetingRecord } from "@/types";
+import type { MeetingRecord, MeetingResults } from "@/types";
 
 export function MeetingDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { meeting, error, loaded } = useMeeting(id);
   const { template } = useTemplate(meeting?.template_id);
+  const { results } = useMeetingResults(id, meeting?.status === "done");
 
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -62,6 +75,7 @@ export function MeetingDetail() {
       <MeetingView
         meeting={meeting}
         templateTitle={template?.title ?? null}
+        results={results}
         busy={busy}
         onDelete={meeting.status !== "running" ? onDelete : undefined}
       />
@@ -72,11 +86,13 @@ export function MeetingDetail() {
 function MeetingView({
   meeting,
   templateTitle,
+  results,
   busy,
   onDelete,
 }: {
   meeting: MeetingRecord;
   templateTitle: string | null;
+  results: MeetingResults | null;
   busy: string | null;
   onDelete?: () => void;
 }) {
@@ -129,6 +145,13 @@ function MeetingView({
             <CopyButton value={meeting.join_url} label="Copy join link" />
           </>
         )}
+        {meeting.status === "done" && (results?.sections?.length ?? 0) > 0 && (
+          <IconButton asChild label="Download answers (.xlsx)">
+            <a href={meetingAnswersXlsxUrl(meeting.meeting_id)} download>
+              <Download />
+            </a>
+          </IconButton>
+        )}
         {!scheduled && meeting.live_view_url && (
           <IconButton variant="outline" asChild label="Open live view">
             <a href={meeting.live_view_url} target="_blank" rel="noreferrer">
@@ -165,6 +188,10 @@ function MeetingView({
       </dl>
 
       {scheduled && <InviteesList emails={meeting.invitees} />}
+
+      {meeting.status === "done" && results && (
+        <MeetingResultsPanels results={results} />
+      )}
     </div>
   );
 }

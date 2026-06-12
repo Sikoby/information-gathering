@@ -10,7 +10,7 @@ A meeting is born `running` (start-now) or `scheduled` (a future start). A sched
 
 It serves a JSON API only — no HTML. The console SPA is a separate [`console-frontend`](../../console-frontend/) nginx container that reverse-proxies `/api` here.
 
-The console **never imports agent code** (`harness`, `briefing_plan`, `tools`, livekit, openai). It reads `state:<run_id>` as opaque JSON, exactly like the meeting API. `src/templates` is imported only for the `Template` Pydantic schema (used to validate edited templates).
+The console **never imports agent code** (`harness`, `briefing_plan`, `tools`, livekit, openai). It reads `state:<run_id>` as opaque JSON, exactly like the meeting API. `src/templates` is imported only for the `Template` Pydantic schema (used to validate edited templates). For **finished** meetings it also reads the agent's flushed artifacts (`out/<run_id>/tree.json` + `transcript.jsonl`) through a **read-only** `./out` bind mount — `artifacts.py` re-parses the JSON directly rather than importing `src.persistence` (which would drag in LiveKit). These back the results endpoint and the answers `.xlsx` export; unlike the 24h-TTL Redis snapshot, they are permanent.
 
 ## Stateless and horizontally scalable
 
@@ -31,6 +31,8 @@ src/console/
   reconcile.py    background lifecycle-reconciliation task (leader-locked).
   ics.py          hand-rolled RFC 5545 VEVENT builder for the .ics invite.
   invites.py      invite delivery over SMTP (aiosmtplib); no-op when SMTP_HOST unset.
+  artifacts.py    reads out/<run_id>/ (tree.json, transcript.jsonl) for finished
+                  meetings + builds the answers .xlsx (openpyxl).
   handlers.py     /api/* + /healthz handlers.
 ```
 
@@ -69,6 +71,8 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `GET /api/meetings` | `{meetings: [...]}`, newest first — only the caller's meetings. |
 | `GET /api/meetings/{id}` | The poll endpoint. `200` / `404` (also `404` on owner mismatch). |
 | `GET /api/meetings/{id}/invite.ics` | Downloads the `.ics` calendar invite for a scheduled meeting (`Content-Type: text/calendar`, `Content-Disposition: attachment`). `404` on owner mismatch; `409` if the meeting has no `scheduled_at`. Built by `ics.build_event` (with the join link + `join_pin` embedded in the DESCRIPTION); this is the **Add to calendar** download — the same payload `invites.send_invites` attaches to the email. |
+| `GET /api/meetings/{id}/results` | The flushed artifacts of a **finished** meeting: `{sections, transcript}` read from `out/<run_id>/`. `404` on owner mismatch; `409` while not `done`. Fields are `null` when the agent never flushed (crash, `schedule_missed`) — the SPA shows empty states. |
+| `GET /api/meetings/{id}/answers.xlsx` | Downloads the question→answer sheet of a **finished** meeting (`Content-Disposition: attachment`, filename `<slug>-answers.xlsx`). Topic columns mirror the tree depth (Section, Subsection, …), then Question / Answer / Detail / Recorded at; one row per answer, unanswered questions keep an empty row. `404` on owner mismatch or when no `tree.json` exists; `409` while not `done`. |
 | `DELETE /api/meetings/{id}` | `204`. `404` on owner mismatch. `409` if `running`. |
 
 **Helpers:**
@@ -109,6 +113,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 | `TEMPLATE_GEN_URL` | optional (default `http://template-generator:8768`) | generation. |
 | `MEETING_PUBLIC_URL` | optional (default `http://localhost:8765`) | base of the meeting's public live-view page. Used to stamp a **deterministic** `live_view_url` (`<base>/<meeting_id>/`) on a scheduled meeting so its `.ics` has a stable link before dispatch. For start-now meetings, dispatch builds the same URL. |
 | `CONSOLE_PORT` | optional (default 8770) | aiohttp listen port. |
+| `CONSOLE_OUT_ROOT` | optional (default `out`) | root of the agent's flushed run artifacts. The compose file bind-mounts `./out` read-only at `/app/out`, so the default resolves both in-container and for repo-root local runs. |
 | `CONSOLE_DEV_USER_EMAIL` | optional (unset → 401) | Local-dev identity fallback when `Cf-Access-Authenticated-User-Email` is absent. Compose default is `dev@local`; left empty in `docker-compose.prod.yml`. |
 | `CONSOLE_CF_TEAM_DOMAIN` | optional (unset → `logout_url` is `null`) | Cloudflare Zero Trust team name (`myteam`) or full host (`myteam.cloudflareaccess.com`); backs the `GET /api/me` `logout_url`. Set it in `.env` (the console loads it via `env_file`). |
 | `CONSOLE_GEN_MAX_ITERATIONS` | optional (default 3) | passed to template-generator. |
@@ -126,7 +131,7 @@ Background tasks (`generation.py`, `reconcile.py`) do not pass through the middl
 python -m src.console
 ```
 
-[Dockerfile.console](../../Dockerfile.console) is a single-stage Python image (`aiohttp redis loguru pydantic python-dotenv aiosmtplib`) — no livekit/openai.
+[Dockerfile.console](../../Dockerfile.console) is a single-stage Python image (`aiohttp redis loguru pydantic python-dotenv aiosmtplib openpyxl`) — no livekit/openai.
 
 ## Verify changes
 
@@ -167,4 +172,12 @@ curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
      -H 'Content-Type: application/json' \
      -d '{"interviewees":[{"name":"Ada","email":"ada@x.test"},{"name":"Linus","email":"linus@x.test"}]}'
 # → 201 {meetings:[...two running, distinct meeting_id/run_id...], errors:[]}
+
+# Finished-meeting results (the meeting must be done and have flushed artifacts):
+curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
+     http://localhost:8770/api/meetings/<meeting-id>/results | jq '.sections|length'
+curl -s -H 'Cf-Access-Authenticated-User-Email: alice@x.test' \
+     -o answers.xlsx http://localhost:8770/api/meetings/<meeting-id>/answers.xlsx
+# While the meeting is running both return 409; without artifacts results
+# returns null fields and the xlsx returns 404.
 ```

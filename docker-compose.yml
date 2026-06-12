@@ -186,6 +186,10 @@ services:
       CONSOLE_DEV_USER_EMAIL: ${CONSOLE_DEV_USER_EMAIL:-dev@local}
     ports:
       - "8770:8770"
+    volumes:
+      # Read-only view of the agent's flushed run artifacts — backs the
+      # finished-meeting results page + xlsx export.
+      - ./out:/app/out:ro
     depends_on:
       redis:
         condition: service_healthy

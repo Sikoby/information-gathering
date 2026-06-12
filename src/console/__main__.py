@@ -87,6 +87,14 @@ def build_app() -> web.Application:
         "/api/meetings/{meeting_id}/invite.ics",
         handlers.get_meeting_invite_ics,
     )
+    app.router.add_get(
+        "/api/meetings/{meeting_id}/results",
+        handlers.get_meeting_results,
+    )
+    app.router.add_get(
+        "/api/meetings/{meeting_id}/answers.xlsx",
+        handlers.get_meeting_answers_xlsx,
+    )
     app.router.add_delete(
         "/api/meetings/{meeting_id}", handlers.delete_meeting
     )

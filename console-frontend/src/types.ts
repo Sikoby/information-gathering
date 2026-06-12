@@ -1,4 +1,4 @@
-import type { Template } from "@ig/ui";
+import type { Section, Template } from "@ig/ui";
 
 // Template + Section types come from the shared library. Re-exported for
 // local imports.
@@ -10,6 +10,7 @@ export {
   CLOSING_SECTION_ID,
   sectionById,
   childrenOf,
+  answersUnder,
   isScheduled,
   scheduledNodes,
 } from "@ig/ui";
@@ -73,6 +74,22 @@ export type MeetingRecord = {
   dispatched_at: string | null;
   ended_at: string | null;
   end_reason: string | null;
+};
+
+/** One line of the agent's out/<run_id>/transcript.jsonl. */
+export type TranscriptLine = {
+  ts: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
+/**
+ * `GET /api/meetings/{id}/results` — the flushed artifacts of a finished
+ * meeting. Null fields mean the agent never flushed (crash, schedule_missed).
+ */
+export type MeetingResults = {
+  sections: Section[] | null;
+  transcript: TranscriptLine[] | null;
 };
 
 export type ReferenceTemplate = {

@@ -8,7 +8,7 @@ A briefing-driven voice meeting agent. The agent joins a LiveKit room, runs an i
 
 ## Services
 
-Eight containers. The **meeting console** (`console` + `console-frontend`) is the front door for creating meetings; `agent`, the participant-facing **meeting** pair (`meeting` + `meeting-frontend`), and `dispatch` are the meeting-runtime path; `template-generator` synthesises templates. The agent has **no direct connection** to the other services; every cross-service interaction goes through Redis (state pub/sub + the meeting registry), LiveKit Cloud (room dispatch), or HTTP (console → dispatch / template-generator).
+Eight containers. The **meeting console** (`console` + `console-frontend`) is the front door for creating meetings; `agent`, the participant-facing **meeting** pair (`meeting` + `meeting-frontend`), and `dispatch` are the meeting-runtime path; `template-generator` synthesises templates. The agent has **no direct connection** to the other services; every cross-service interaction goes through Redis (state pub/sub + the meeting registry), LiveKit Cloud (room dispatch), or HTTP (console → dispatch / template-generator) — plus one shared bind mount: the agent's flushed `out/<run_id>/` artifacts, which the console reads **read-only** to serve a finished meeting's results and `.xlsx` export.
 
 The participant tier mirrors the console's two-container shape: a Python JSON API (`meeting`) behind an nginx SPA host (`meeting-frontend`) that serves the bundle and reverse-proxies `/api`. The console is the **organiser**-facing app; the meeting tier is the **participant**-facing app (live view + join).
 
@@ -19,7 +19,7 @@ The participant tier mirrors the console's two-container shape: a Python JSON AP
 | meeting-frontend | `meeting-frontend` | [meeting-frontend/](meeting-frontend/) | nginx. Serves the participant SPA (live view + join); reverse-proxies `/api` to `meeting`. |
 | dispatch | `dispatch` | [src/dispatch_service/](src/dispatch_service/) | HTTP service. `POST /dispatch` creates a LiveKit room + agent dispatch from an inline briefing. |
 | template-generator | `template-generator` | [src/template_generator/](src/template_generator/) | HTTP service. `POST /generate` runs an impl+critique LLM loop to synthesise a meeting `Template`. |
-| console | `console` | [src/console/](src/console/) | HTTP API. Owns the `template:*` + `meeting:*` registries; drives template generation; launches meetings from templates; tracks the meeting Running → Done lifecycle. Stateless, scalable. |
+| console | `console` | [src/console/](src/console/) | HTTP API. Owns the `template:*` + `meeting:*` registries; drives template generation; launches meetings from templates; tracks the meeting Running → Done lifecycle. Serves a finished meeting's results (section tree + transcript) and the answers `.xlsx` export from the agent's flushed artifacts via a read-only `./out` mount. Stateless, scalable. |
 | console-frontend | `console-frontend` | [console-frontend/](console-frontend/) | nginx. Serves the console SPA; reverse-proxies `/api` to `console`. |
 | redis | `redis` | (Redis 7 image) | State pub/sub, last-snapshot cache, and the meeting registry (AOF-persisted). |
 

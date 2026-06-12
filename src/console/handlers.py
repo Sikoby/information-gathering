@@ -26,7 +26,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..templates import TEMPLATES
 from ..templates.schema import Template
-from . import auth, clients, generation, ics, invites, registry
+from . import artifacts, auth, clients, generation, ics, invites, registry
 from .models import (
     BatchScheduleFromTemplate,
     BatchStartFromTemplate,
@@ -715,6 +715,48 @@ async def get_meeting_invite_ics(request: web.Request) -> web.Response:
         headers={
             "Content-Disposition": (
                 f'attachment; filename="{_ics_filename(summary)}.ics"'
+            )
+        },
+    )
+
+
+async def get_meeting_results(request: web.Request) -> web.Response:
+    """The flushed artifacts (section tree + transcript) of a finished meeting.
+
+    Owner-scoped (404 on mismatch). 409 until the meeting is done — running
+    meetings are watched through the live view, not here. Fields are null
+    when the agent never flushed (crash, `schedule_missed`); the SPA renders
+    empty states for those.
+    """
+    rec = await _load_owned_meeting(request)
+    if isinstance(rec, web.Response):
+        return rec
+    if rec.status != "done":
+        return web.json_response({"error": "meeting is not finished"}, status=409)
+    return web.json_response(artifacts.load_results(rec.run_id or rec.meeting_id))
+
+
+async def get_meeting_answers_xlsx(request: web.Request) -> web.Response:
+    """Download the question→answer sheet of a finished meeting as .xlsx."""
+    rec = await _load_owned_meeting(request)
+    if isinstance(rec, web.Response):
+        return rec
+    if rec.status != "done":
+        return web.json_response({"error": "meeting is not finished"}, status=409)
+    sections = artifacts.load_sections(rec.run_id or rec.meeting_id)
+    if not sections:
+        return web.json_response({"error": "no results recorded"}, status=404)
+
+    tmpl = await registry.get_template(rec.template_id)
+    summary = _meeting_summary(rec, tmpl)
+    return web.Response(
+        body=artifacts.build_answers_xlsx(sections),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{_ics_filename(summary)}-answers.xlsx"'
             )
         },
     )

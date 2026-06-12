@@ -3,6 +3,7 @@ import type {
   BatchStartResult,
   Interviewee,
   MeetingRecord,
+  MeetingResults,
   ReferenceTemplate,
   Template,
   TemplateRecord,
@@ -201,6 +202,16 @@ export function getMeeting(id: string): Promise<MeetingRecord> {
 /** Same-origin URL of the downloadable `.ics` invite for a scheduled meeting. */
 export function meetingInviteIcsUrl(id: string): string {
   return `/api/meetings/${id}/invite.ics`;
+}
+
+/** Flushed artifacts (section tree + transcript) of a finished meeting. */
+export function getMeetingResults(id: string): Promise<MeetingResults> {
+  return req(`/api/meetings/${id}/results`);
+}
+
+/** Same-origin URL of the downloadable answers spreadsheet for a finished meeting. */
+export function meetingAnswersXlsxUrl(id: string): string {
+  return `/api/meetings/${id}/answers.xlsx`;
 }
 
 export function deleteMeeting(id: string): Promise<void> {
